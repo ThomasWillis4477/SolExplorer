@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:diag="clr-namespace:IsoMauiEngine.Diagnostics"
+             x:Class="IsoMauiEngine.MainPage">
+
+    <Grid>
+        <GraphicsView x:Name="GameView"
+                      BackgroundColor="#101418"
+                      HorizontalOptions="Fill"
+                      VerticalOptions="Fill" />
+
+        <Border Margin="12"
+                Padding="10"
+                HorizontalOptions="Start"
+                VerticalOptions="Start"
+                BackgroundColor="#AA000000"
+                Stroke="#33000000"
+                StrokeThickness="1">
+            <VerticalStackLayout Spacing="2">
+                <Label Text="Route debug"
+                       FontSize="12"
+                       TextColor="White"
+                       Opacity="0.9" />
+                <Label FontSize="12" TextColor="White">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Current: " />
+                            <Span Text="{Binding Source={x:Static diag:RouteDebugState.Instance}, Path=CurrentLocation}" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <Label FontSize="12" TextColor="White">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Navigating: " />
+                            <Span Text="{Binding Source={x:Static diag:RouteDebugState.Instance}, Path=LastNavigating}" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <Label FontSize="12" TextColor="White">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Navigated: " />
+                            <Span Text="{Binding Source={x:Static diag:RouteDebugState.Instance}, Path=LastNavigated}" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+
+</ContentPage>

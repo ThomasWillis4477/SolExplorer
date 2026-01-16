@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Discord",
+    "short": "D",
+    "url": "https://discord.com/app",
+    "color": "#5865F2",
+    "username": null
+  },
+  {
+    "name": "Facebook",
+    "short": "f",
+    "url": "https://www.facebook.com",
+    "color": "#1877F2",
+    "username": null
+  },
+  {
+    "name": "X",
+    "short": "X",
+    "url": "https://x.com",
+    "color": "#000000",
+    "username": null
+  },
+  {
+    "name": "Yahoo Mail",
+    "short": "Y!",
+    "url": "https://mail.yahoo.com",
+    "color": "#6001D2",
+    "username": null
+  },
+  {
+    "name": "Gmail",
+    "short": "G",
+    "url": "https://mail.google.com",
+    "color": "#DB4437",
+    "username": null
+  }
+]

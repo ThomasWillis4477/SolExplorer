@@ -1,0 +1,110 @@
+Context
+Build a minimal, code-first 2D isometric “engine” inside a .NET MAUI Windows app. Use MAUI protocols: GraphicsView + IDrawable for rendering, Dispatcher/Timer for the game loop, and MAUI input events for keyboard. No Unity, no Raylib, no SkiaSharp unless absolutely necessary (prefer pure MAUI Graphics). Target: Windows only is OK, but keep code portable where possible.
+
+Goals
+1) A MAUI Windows app that opens a window and continuously renders a 2D isometric world.
+2) Isometric grid math (2:1 diamond iso): Grid<->World conversion helpers.
+3) Tilemap renderer: draw a grid of isometric “deck tiles” (simple shapes first; later swap with images).
+4) Entity system: a player that moves in 8 directions with keyboard input (WASD / arrows).
+5) Depth sorting: draw order based on world/screen Y so lower renders in front.
+6) Sprite animation support: optional sprite-sheet frame selection per direction (but allow placeholder rectangle if images are hard).
+
+Tasks
+A) Create Project
+- Create a new .NET MAUI app named: IsoMauiEngine
+- Configure for Windows desktop.
+- MainPage contains a full-screen GraphicsView.
+- Add an IDispatcherTimer-based loop (or Device.StartTimer equivalent) targeting ~60 FPS.
+
+B) Core Types (names exact)
+1) Engine/GameHost.cs
+- Owns: World, InputState, Camera2D, Renderer, GameClock.
+- Starts/stops the timer loop.
+- Update(dt): update world and player.
+- Invalidate the GraphicsView each tick.
+
+2) Engine/GameClock.cs
+- Fixed timestep accumulator (e.g., 1/60f).
+- Expose DeltaTime and Step() method.
+
+3) Engine/InputState.cs
+- Track key down/up state (HashSet of keys).
+- Provide GetMoveVector() returning Vector2 in (-1..1) for X/Y.
+- Hook keyboard events from the Window or Page to update state.
+
+C) Rendering with MAUI
+4) Rendering/IsoDrawable.cs implements IDrawable
+- Has references to GameHost (or World + Renderer state).
+- Draw(ICanvas canvas, RectF dirtyRect):
+  - Clear background.
+  - Ask World for a list of DrawItems (tiles + entities).
+  - Sort by SortY (ascending), then draw.
+- Must draw without allocations in the hot path if possible.
+
+5) Rendering/Renderer2D.cs
+- Provide methods:
+  - DrawIsoTile(ICanvas canvas, Vector2 worldPos, float tileW, float tileH)
+  - DrawSpriteOrPlaceholder(ICanvas canvas, DrawItem item)
+- Start with pure vector drawing:
+  - Iso tile = diamond polygon filled + outline.
+  - Player = colored capsule/rect with direction indicator.
+- Add optional support to draw image sprites:
+  - Load images via IImageSource / FileImageSource if feasible.
+  - If sprite-sheet cropping is too hard in MAUI Graphics, keep it as “placeholder + frame index” with TODO hooks.
+
+D) Isometric Math
+6) Iso/IsoMath.cs
+- Constants: TileWidth, TileHeight (float).
+- GridToWorld(int gx, int gy):
+  worldX = (gx - gy) * (TileWidth / 2)
+  worldY = (gx + gy) * (TileHeight / 2)
+- WorldToGrid(Vector2 world) -> Vector2 (float coords).
+- GridSnap(world) to nearest cell.
+- SortKey(world) = worldY.
+
+E) World
+7) World/TileMap.cs
+- Width/Height, int[,] tiles.
+- Emit DrawItems for each tile:
+  - worldPos from GridToWorld
+  - SortY from worldPos.Y
+  - Type = Tile
+
+8) World/World.cs
+- Has TileMap and list of Entities.
+- Update(dt): update entities.
+- GetDrawItems(): tiles + entities in one list.
+
+9) Entities/Entity.cs
+- Vector2 WorldPos
+- virtual Update(dt)
+- virtual EmitDrawItems(list)
+
+10) Entities/Player.cs
+- Reads InputState move vector.
+- Convert move vector to isometric world delta:
+  iso = new Vector2(input.X - input.Y, (input.X + input.Y) * 0.5f)
+  normalize and scale by speed.
+- Update WorldPos.
+- Determine facing among 8 directions for later animation.
+
+F) App Wiring
+- MainPage creates GameHost and IsoDrawable.
+- GraphicsView.Drawable = IsoDrawable.
+- Start loop on Appearing, stop on Disappearing.
+- Ensure keyboard input works on Windows:
+  - Make page focusable; set focus to GraphicsView or a hidden Entry.
+  - Hook key events at Window level if needed.
+
+Verification
+- Run on Windows.
+- Shows a 20x20 isometric diamond tilemap (vector-drawn).
+- A player marker moves with WASD/Arrows.
+- Depth sort works: moving “down” draws in front of tiles “above”.
+- Stable timing (~60 updates/sec).
+
+Acceptance Criteria
+- Entire engine works with MAUI’s GraphicsView + IDrawable.
+- No external graphics/game libraries required.
+- Code is clean, minimal, and extensible.
+- Clear TODO hooks for replacing vector tiles with actual PNG sprites later.

@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run IsoMauiEngine (Windows)",
+			"type": "process",
+			"command": "dotnet",
+			"args": ["run", "--project", "IsoMauiEngine\\IsoMauiEngine.csproj", "-c", "Debug", "-f", "net10.0-windows10.0.19041.0"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="IsoMauiEngine.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:IsoMauiEngine"
+    xmlns:views="clr-namespace:IsoMauiEngine.Views"
+    Title="IsoMauiEngine">
+
+    <!-- FlyoutItem: top-level entries in the left flyout (hamburger menu). -->
+    <FlyoutItem Title="Isometric Engine" Route="engine">
+        <ShellContent
+            Title="Engine"
+            ContentTemplate="{DataTemplate local:MainPage}"
+            Route="main" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="ShellContent" Route="shellcontent">
+        <ShellContent
+			Title="ShellContent"
+            ContentTemplate="{DataTemplate views:ShellContentInfoPage}"
+			Route="info" />
+
+        <ShellContent
+            Title="Animation Test"
+            ContentTemplate="{DataTemplate views:AnimationTestPage}"
+            Route="animtest" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="FlyoutItem" Route="flyoutitem">
+        <ShellContent
+			Title="FlyoutItem"
+            ContentTemplate="{DataTemplate views:FlyoutItemInfoPage}"
+			Route="info" />
+    </FlyoutItem>
+
+    <!-- ShellSection: a subsection within a FlyoutItem (often appears as top tabs on desktop). -->
+    <FlyoutItem Title="ShellSection" Route="shellsection">
+                <ShellSection Title="Section A" Route="a">
+            <ShellContent
+                Title="Section A"
+                ContentTemplate="{DataTemplate views:ShellSectionInfoPageA}"
+				Route="info" />
+        </ShellSection>
+
+                <ShellSection Title="Section B" Route="b">
+            <ShellContent
+                Title="Section B"
+                ContentTemplate="{DataTemplate views:ShellSectionInfoPageB}"
+				Route="info" />
+        </ShellSection>
+    </FlyoutItem>
+
+    <!-- TabBar: a top-level container for tabbed navigation. -->
+    <TabBar Route="tabbar">
+        <ShellContent
+            Title="Tab 1"
+            ContentTemplate="{DataTemplate views:TabBarInfoPage1}"
+			Route="one" />
+        <ShellContent
+            Title="Tab 2"
+            ContentTemplate="{DataTemplate views:TabBarInfoPage2}"
+			Route="two" />
+    </TabBar>
+
+</Shell>

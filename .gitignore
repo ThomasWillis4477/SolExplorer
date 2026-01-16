@@ -1,0 +1,48 @@
+# .NET / Visual Studio / Rider
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# MAUI / Xamarin
+**/platforms/**/bin/
+**/platforms/**/obj/
+
+# Build outputs / publish
+publish/
+publish_win_*/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local tool/restore state
+.nuget/
+
+# Generated MAUI/XAML artifacts
+**/*.g.cs
+**/*.g.i.cs
+**/*.AssemblyInfo.cs
+**/*GeneratedMSBuildEditorConfig.editorconfig
+**/XamlTypeInfo.g.cs
+
+# VS Code local
+.vscode/*.log
+
+# Keep tasks/settings if you want them checked in
+!.vscode/tasks.json
+!.vscode/settings.json
+
+# Do not commit app data / vaults (shouldn't be in repo, but just in case)
+**/vault.bin

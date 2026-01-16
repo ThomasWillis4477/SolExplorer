@@ -1,0 +1,161 @@
+// COPILOT REPAIR TASK — ArsX One-View
+// Goal: Restore working navigation + JSON-driven sidebar AFTER Stage 4 changes.
+// Do NOT touch any DPAPI / vault files. Only fix MainWindow.xaml.cs.
+// Assumptions:
+// - Models/SiteProfile.cs exists.
+// - Services/SiteProfileStore.cs exists and can load Config/sites.json.
+// - MainWindow.xaml still has:
+//      StackPanel x:Name="Sidebar"
+//      Button x:Name="BackButton"
+//      Button x:Name="ForwardButton"
+//      Button x:Name="ReloadButton"
+//      TextBox x:Name="AddressBar"
+//      WebView2 x:Name="Browser"
+//
+// Rewrite the MainWindow class as follows:
+//
+// 1) Namespace and usings:
+//
+// using System;
+// using System.Collections.Generic;
+// using System.IO;
+// using System.Windows;
+// using System.Windows.Controls;
+// using System.Windows.Input;
+// using System.Windows.Media;
+// using ArsX.OneView.Models;
+// using ArsX.OneView.Services;
+// using Microsoft.Web.WebView2.Core;
+// using Microsoft.Web.WebView2.Wpf;
+//
+// namespace ArsX.OneView
+// {
+//     public partial class MainWindow : Window
+//     {
+//         private readonly SiteProfileStore _siteStore;
+//         private List<SiteProfile> _sites = new();
+//
+//         public MainWindow()
+//         {
+//             InitializeComponent();
+//
+//             _siteStore = new SiteProfileStore();
+//
+//             // Load sites and build sidebar buttons
+//             LoadSitesAndBuildSidebar();
+//
+//             // Wire toolbar navigation
+//             BackButton.Click    += (s, e) => { if (Browser.CanGoBack)    Browser.GoBack(); };
+//             ForwardButton.Click += (s, e) => { if (Browser.CanGoForward) Browser.GoForward(); };
+//             ReloadButton.Click  += (s, e) => Browser.Reload();
+//             AddressBar.KeyDown  += AddressBar_KeyDown;
+//
+//             // WebView2 navigation events
+//             Browser.NavigationCompleted += Browser_NavigationCompleted;
+//
+//             // Initial navigation: use AddressBar.Text if set, otherwise Discord
+//             var startUrl = string.IsNullOrWhiteSpace(AddressBar.Text)
+//                 ? "https://discord.com/app"
+//                 : AddressBar.Text;
+//
+//             NavigateTo(startUrl);
+//         }
+//
+//         private void LoadSitesAndBuildSidebar()
+//         {
+//             Sidebar.Children.Clear();
+//
+//             try
+//             {
+//                 _sites = _siteStore.GetSites();
+//             }
+//             catch (Exception)
+//             {
+//                 _sites = new List<SiteProfile>();
+//             }
+//
+//             foreach (var site in _sites)
+//             {
+//                 var btn = new Button
+//                 {
+//                     Content = site.Short,
+//                     Tag = site.Url,
+//                     Height = 40,
+//                     Margin = new Thickness(8, 4, 8, 4),
+//                     Foreground = Brushes.White
+//                 };
+//
+//                 // Apply color if valid
+//                 if (!string.IsNullOrWhiteSpace(site.Color))
+//                 {
+//                     try
+//                     {
+//                         btn.Background = (SolidColorBrush)new BrushConverter().ConvertFromString(site.Color);
+//                     }
+//                     catch
+//                     {
+//                         btn.Background = Brushes.DimGray;
+//                     }
+//                 }
+//                 else
+//                 {
+//                     btn.Background = Brushes.DimGray;
+//                 }
+//
+//                 btn.Click += (s, e) => NavigateTo((string)btn.Tag);
+//
+//                 Sidebar.Children.Add(btn);
+//             }
+//         }
+//
+//         private void AddressBar_KeyDown(object sender, KeyEventArgs e)
+//         {
+//             if (e.Key == Key.Enter)
+//             {
+//                 var url = AddressBar.Text;
+//                 if (!string.IsNullOrWhiteSpace(url))
+//                 {
+//                     NavigateTo(url);
+//                 }
+//             }
+//         }
+//
+//         private void NavigateTo(string url)
+//         {
+//             if (string.IsNullOrWhiteSpace(url))
+//                 return;
+//
+//             url = url.Trim();
+//
+//             if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+//             {
+//                 if (url.Contains('.'))
+//                 {
+//                     url = "https://" + url;
+//                 }
+//                 else
+//                 {
+//                     url = "https://duckduckgo.com/?q=" + Uri.EscapeDataString(url);
+//                 }
+//             }
+//
+//             Browser.Source = new Uri(url);
+//             AddressBar.Text = url;
+//         }
+//
+//         private void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+//         {
+//             if (!e.IsSuccess || Browser.CoreWebView2 == null)
+//                 return;
+//
+//             Title = Browser.CoreWebView2.DocumentTitle;
+//             AddressBar.Text = Browser.Source?.ToString() ?? AddressBar.Text;
+//         }
+//     }
+// }
+//
+// The key points:
+// - Sidebar buttons are rebuilt from SiteProfileStore.GetSites().
+// - Buttons navigate via NavigateTo(site.Url).
+// - An initial NavigateTo(...) call is ALWAYS made in the constructor.
+// - DPAPI vault types are NOT referenced here at all.

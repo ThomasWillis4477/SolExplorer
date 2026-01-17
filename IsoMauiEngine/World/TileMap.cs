@@ -37,7 +37,9 @@ public sealed class TileMap
 					IsoMath.SortKey(worldPos),
 					Facing: Direction8.S,
 					Frame: 0,
-					IsMoving: false));
+					IsMoving: false,
+					LayerBias: -1000f,
+					Kind: DrawKind.FloorTile));
 			}
 		}
 	}

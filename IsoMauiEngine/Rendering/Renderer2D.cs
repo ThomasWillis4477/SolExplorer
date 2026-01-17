@@ -7,6 +7,7 @@ namespace IsoMauiEngine.Rendering;
 
 public sealed class Renderer2D
 {
+	private const float WallPixelHeightBase = 18f;
 	private readonly Camera2D _camera;
 
 	public Renderer2D(Camera2D camera)
@@ -17,6 +18,9 @@ public sealed class Renderer2D
 	public void DrawIsoTile(ICanvas canvas, Vector2 worldPos, float tileW, float tileH)
 	{
 		var p = _camera.WorldToScreen(worldPos);
+		var z = _camera.Zoom;
+		tileW *= z;
+		tileH *= z;
 
 		var x = (float)p.X;
 		var y = (float)p.Y;
@@ -38,36 +42,225 @@ public sealed class Renderer2D
 	public void DrawSpriteOrPlaceholder(ICanvas canvas, DrawItem item)
 	{
 		var p = _camera.WorldToScreen(item.WorldPos);
+		var z = _camera.Zoom;
 
-		switch (item.Type)
+		switch (item.Kind)
 		{
-			case DrawItemType.Player:
-				DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving);
+			case DrawKind.Entity:
+				DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z);
 				break;
-			case DrawItemType.Tile:
+			case DrawKind.FloorTile:
+					// Default ground tile is sprite-based (deck_plate_normal.png).
+					// Keep DrawIsoTile as a fallback/debug renderer if the sprite is missing.
+					var deck = SpriteAssets.DeckPlateNormal;
+					if (deck is not null)
+					{
+						DrawGroundTileSprite(canvas, p, deck, z, IsoMath.TileWidth, IsoMath.TileHeight);
+					}
+					else
+					{
+						DrawIsoTile(canvas, item.WorldPos, IsoMath.TileWidth, IsoMath.TileHeight);
+					}
+				break;
+			case DrawKind.WallTile:
+				DrawIsoWallTile(canvas, item.WorldPos, _camera, item.Height);
+				break;
+			case DrawKind.DoorTile:
+				DrawIsoDoorTile(canvas, item.WorldPos, _camera, item.Height);
+				break;
+			case DrawKind.Marker:
+				DrawMarker(canvas, p, z);
+				break;
 			default:
-				DrawIsoTile(canvas, item.WorldPos, IsoMath.TileWidth, IsoMath.TileHeight);
+				// Backward-compat fallback.
+				switch (item.Type)
+				{
+					case DrawItemType.Player:
+						DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z);
+						break;
+					case DrawItemType.Tile:
+					default:
+						DrawIsoTile(canvas, item.WorldPos, IsoMath.TileWidth, IsoMath.TileHeight);
+						break;
+				}
 				break;
 		}
 	}
 
-	private static void DrawPlayer(ICanvas canvas, Vector2 screenPos, Direction8 facing, int frame, bool isMoving)
+	private static void DrawGroundTileSprite(
+		ICanvas canvas,
+		Vector2 screenCenter,
+		Microsoft.Maui.Graphics.IImage image,
+		float zoom,
+		float tileW,
+		float tileH)
+	{
+		var w = tileW * zoom;
+		var h = tileH * zoom;
+
+		// deck_plate_normal.png is authored as an isometric tile sprite and may include extra transparent
+		// padding (often square). To avoid shrinking it too much, scale uniformly based on footprint width.
+		// This preserves aspect ratio (no stretching) and keeps the sprite centered at the same point.
+		var imgW = MathF.Max(1f, image.Width);
+		var imgH = MathF.Max(1f, image.Height);
+		var scale = w / imgW;
+
+		var drawW = w;
+		var drawH = imgH * scale;
+		var x = screenCenter.X - drawW * 0.5f;
+		var y = screenCenter.Y - drawH * 0.5f;
+		canvas.DrawImage(image, x, y, drawW, drawH);
+	}
+
+	private void DrawIsoWallTile(ICanvas canvas, Vector2 worldPos, Camera2D cam, float height)
+	{
+		DrawIsoCube(canvas, worldPos, cam, height,
+			top: Color.FromArgb("#3A454F"),
+			right: Color.FromArgb("#2A343D"),
+			bottom: Color.FromArgb("#1E262D"),
+			panel: null);
+	}
+
+	private void DrawIsoDoorTile(ICanvas canvas, Vector2 worldPos, Camera2D cam, float height)
+	{
+		DrawIsoCube(canvas, worldPos, cam, height,
+			top: Color.FromArgb("#46525D"),
+			right: Color.FromArgb("#33404A"),
+			bottom: Color.FromArgb("#252F37"),
+			panel: Color.FromArgb("#1B232A"));
+	}
+
+	private void DrawIsoCube(
+		ICanvas canvas,
+		Vector2 worldPos,
+		Camera2D cam,
+		float height,
+		Color top,
+		Color right,
+		Color bottom,
+		Color? panel)
+	{
+		var center = cam.WorldToScreen(worldPos);
+		var z = cam.Zoom;
+		var w2 = (IsoMath.TileWidth * z) * 0.5f;
+		var h2 = (IsoMath.TileHeight * z) * 0.5f;
+
+		var wallH = WallPixelHeightBase * z * MathF.Max(0f, height);
+
+		var x = center.X;
+		var y = center.Y;
+
+		var t = new Vector2(x, y - h2);
+		var r = new Vector2(x + w2, y);
+		var b = new Vector2(x, y + h2);
+		var l = new Vector2(x - w2, y);
+
+		var down = new Vector2(0, wallH);
+		var t2 = t + down;
+		var r2 = r + down;
+		var b2 = b + down;
+
+		// Bottom (front) face: R->B extruded down.
+		var faceBottom = new PathF();
+		faceBottom.MoveTo(r.X, r.Y);
+		faceBottom.LineTo(b.X, b.Y);
+		faceBottom.LineTo(b2.X, b2.Y);
+		faceBottom.LineTo(r2.X, r2.Y);
+		faceBottom.Close();
+
+		canvas.FillColor = bottom;
+		canvas.FillPath(faceBottom);
+
+		// Right face: T->R extruded down.
+		var faceRight = new PathF();
+		faceRight.MoveTo(t.X, t.Y);
+		faceRight.LineTo(r.X, r.Y);
+		faceRight.LineTo(r2.X, r2.Y);
+		faceRight.LineTo(t2.X, t2.Y);
+		faceRight.Close();
+
+		canvas.FillColor = right;
+		canvas.FillPath(faceRight);
+
+		// Top face.
+		var faceTop = new PathF();
+		faceTop.MoveTo(t.X, t.Y);
+		faceTop.LineTo(r.X, r.Y);
+		faceTop.LineTo(b.X, b.Y);
+		faceTop.LineTo(l.X, l.Y);
+		faceTop.Close();
+
+		canvas.FillColor = top;
+		canvas.FillPath(faceTop);
+
+		// Door styling: inset panel on top face.
+		if (panel is not null)
+		{
+			var iw2 = w2 * 0.55f;
+			var ih2 = h2 * 0.55f;
+			var it = new Vector2(x, y - ih2);
+			var ir = new Vector2(x + iw2, y);
+			var ib = new Vector2(x, y + ih2);
+			var il = new Vector2(x - iw2, y);
+			var inset = new PathF();
+			inset.MoveTo(it.X, it.Y);
+			inset.LineTo(ir.X, ir.Y);
+			inset.LineTo(ib.X, ib.Y);
+			inset.LineTo(il.X, il.Y);
+			inset.Close();
+			canvas.FillColor = panel;
+			canvas.FillPath(inset);
+		}
+
+		// Subtle outlines.
+		canvas.StrokeColor = Color.FromArgb("#0F141A");
+		canvas.StrokeSize = 1;
+		canvas.DrawPath(faceBottom);
+		canvas.DrawPath(faceRight);
+		canvas.DrawPath(faceTop);
+	}
+
+	private static void DrawMarker(ICanvas canvas, Vector2 screenPos, float zoom)
+	{
+		var w2 = (IsoMath.TileWidth * zoom) * 0.2f;
+		var h2 = (IsoMath.TileHeight * zoom) * 0.2f;
+		var x = screenPos.X;
+		var y = screenPos.Y;
+
+		var path = new PathF();
+		path.MoveTo(x, y - h2);
+		path.LineTo(x + w2, y);
+		path.LineTo(x, y + h2);
+		path.LineTo(x - w2, y);
+		path.Close();
+
+		canvas.FillColor = Color.FromArgb("#3DE0C4");
+		canvas.FillPath(path);
+		canvas.StrokeColor = Color.FromArgb("#0F141A");
+		canvas.StrokeSize = 1;
+		canvas.DrawPath(path);
+	}
+
+	private static void DrawPlayer(ICanvas canvas, Vector2 screenPos, Direction8 facing, int frame, bool isMoving, float zoom)
 	{
 		var x = (float)screenPos.X;
 		var y = (float)screenPos.Y;
 
 		// Prefer sprite sheets if available; fall back to placeholder.
-		if (TryDrawPlayerSprite(canvas, x, y, facing, frame, isMoving))
+		if (TryDrawPlayerSprite(canvas, x, y, facing, frame, isMoving, zoom))
 		{
 			return;
 		}
 
 		// Body
 		canvas.FillColor = Color.FromArgb("#F4D35E");
-		canvas.FillRoundedRectangle(x - 10, y - 24, 20, 24, 6);
+		var bodyW = 20f * zoom;
+		var bodyH = 24f * zoom;
+		var radius = 6f * zoom;
+		canvas.FillRoundedRectangle(x - bodyW * 0.5f, y - bodyH, bodyW, bodyH, radius);
 		canvas.StrokeColor = Colors.Black;
 		canvas.StrokeSize = 1;
-		canvas.DrawRoundedRectangle(x - 10, y - 24, 20, 24, 6);
+		canvas.DrawRoundedRectangle(x - bodyW * 0.5f, y - bodyH, bodyW, bodyH, radius);
 
 		// Facing indicator
 		var dir = facing switch
@@ -85,10 +278,12 @@ public sealed class Renderer2D
 
 		canvas.StrokeColor = Colors.Red;
 		canvas.StrokeSize = 2;
-		canvas.DrawLine(x, y - 20, x + dir.X * 10, y - 20 + dir.Y * 10);
+		var headOffset = 20f * zoom;
+		var lineLen = 10f * zoom;
+		canvas.DrawLine(x, y - headOffset, x + dir.X * lineLen, y - headOffset + dir.Y * lineLen);
 	}
 
-	private static bool TryDrawPlayerSprite(ICanvas canvas, float x, float y, Direction8 facing, int frame, bool isMoving)
+	private static bool TryDrawPlayerSprite(ICanvas canvas, float x, float y, Direction8 facing, int frame, bool isMoving, float zoom)
 	{
 		var walking = SpriteAssets.EngineerWalking;
 
@@ -118,7 +313,7 @@ public sealed class Renderer2D
 			var src = sheet.GetSourceRect(col, row);
 
 			// Draw with the feet anchored at the world position.
-			var desiredH = 64f;
+			var desiredH = 64f * zoom;
 			var aspect = src.Width / MathF.Max(1f, src.Height);
 			var desiredW = desiredH * aspect;
 			var dest = new RectF(x - desiredW * 0.5f, y - desiredH, desiredW, desiredH);

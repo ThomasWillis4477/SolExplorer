@@ -10,6 +10,8 @@ public sealed class Player : Entity
 	private const float Speed = 50f;
 	private const float WalkFps = 3.5f;
 	private const int WalkFrames = 4;
+
+	public Func<Vector2, bool>? CanMoveToWorld { get; set; }
 	private Direction8 _facing = Direction8.S;
 	private float _animSeconds;
 	private bool _isMoving;
@@ -34,7 +36,15 @@ public sealed class Player : Entity
 			iso = Vector2.Normalize(iso);
 		}
 
-		WorldPos += iso * (Speed * dt);
+		var next = WorldPos + iso * (Speed * dt);
+		if (CanMoveToWorld?.Invoke(next) ?? true)
+		{
+			WorldPos = next;
+		}
+		else
+		{
+			_isMoving = false;
+		}
 		_facing = FacingFromVector(move);
 	}
 
@@ -47,7 +57,9 @@ public sealed class Player : Entity
 			IsoMath.SortKey(WorldPos) + 0.001f,
 			_facing,
 			Frame: frame,
-			IsMoving: _isMoving));
+			IsMoving: _isMoving,
+			LayerBias: 0f,
+			Kind: DrawKind.Entity));
 	}
 
 	private static Direction8 FacingFromVector(Vector2 move)

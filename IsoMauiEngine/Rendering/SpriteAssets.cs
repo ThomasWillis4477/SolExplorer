@@ -7,7 +7,10 @@ public static class SpriteAssets
 {
 	private static readonly SemaphoreSlim Gate = new(1, 1);
 
+	private static bool AreAllReady => EngineerWalking is not null && DeckPlateNormal is not null;
+
 	public static SpriteSheet? EngineerWalking { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? DeckPlateNormal { get; private set; }
 
 	public static bool IsReady => EngineerWalking is not null;
 
@@ -18,7 +21,7 @@ public static class SpriteAssets
 
 	public static async Task EnsureLoadedAsync()
 	{
-		if (IsReady)
+		if (AreAllReady)
 		{
 			return;
 		}
@@ -26,7 +29,7 @@ public static class SpriteAssets
 		await Gate.WaitAsync().ConfigureAwait(false);
 		try
 		{
-			if (IsReady)
+			if (AreAllReady)
 			{
 				return;
 			}
@@ -45,7 +48,7 @@ public static class SpriteAssets
 
 			if (walkingImage is not null)
 			{
-				// Walking sheet: 8 columns (directions) x 4 rows (frames).
+				// Walking sheet: 8 columns (directions) x 6 rows (frames).
 				// Column order: N, NE, E, SE, S, SW, W, NW.
 				// Row order: animation frames 0..3.
 				EngineerWalking = new SpriteSheet(walkingImage, columns: 8, rows: 6);
@@ -56,7 +59,23 @@ public static class SpriteAssets
 				RouteDebugLogger.Log("[Sprite] Failed to load EngineerWalking");
 			}
 
-			RouteDebugLogger.Log($"[Sprite] Ready={IsReady}");
+			// Default ground tile sprite.
+			// Note: package filename (Resources/Raw/sprites/deck_plate_normal.png).
+			var deckImage = await TryLoadImageAsync(
+				"sprites/deck_plate_normal.png",
+				"sprites/deck_plate_normal_basic.png").ConfigureAwait(false);
+
+			if (deckImage is not null)
+			{
+				DeckPlateNormal = deckImage;
+				RouteDebugLogger.Log($"[Sprite] Loaded DeckPlateNormal {deckImage.Width}x{deckImage.Height}");
+			}
+			else
+			{
+				RouteDebugLogger.Log("[Sprite] Failed to load DeckPlateNormal");
+			}
+
+			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Deck={DeckPlateNormal is not null})");
 		}
 		finally
 		{

@@ -23,6 +23,13 @@ public sealed class IsoDrawable : IDrawable
 		canvas.FillColor = Color.FromArgb("#0B0F14");
 		canvas.FillRectangle(dirtyRect);
 
+		// Screen-space world background (does not pan/zoom with the camera).
+		var bg = SpriteAssets.WorldBackground;
+		if (bg is not null)
+		{
+			DrawBackgroundCover(canvas, dirtyRect, bg, alpha: 0.9f);
+		}
+
 		_host.Camera.ScreenCenter = new Vector2(dirtyRect.Width * 0.5f, dirtyRect.Height * 0.35f);
 
 		_allItems.Clear();
@@ -66,6 +73,25 @@ public sealed class IsoDrawable : IDrawable
 		{
 			DrawModuleDebugOverlay(canvas);
 		}
+	}
+
+	private static void DrawBackgroundCover(ICanvas canvas, RectF viewport, Microsoft.Maui.Graphics.IImage image, float alpha)
+	{
+		var iw = MathF.Max(1f, image.Width);
+		var ih = MathF.Max(1f, image.Height);
+		var vw = MathF.Max(1f, viewport.Width);
+		var vh = MathF.Max(1f, viewport.Height);
+
+		// Aspect-fill (cover) so there are no empty bars.
+		var scale = MathF.Max(vw / iw, vh / ih);
+		var dw = iw * scale;
+		var dh = ih * scale;
+		var dx = viewport.X + (vw - dw) * 0.5f;
+		var dy = viewport.Y + (vh - dh) * 0.5f;
+
+		canvas.Alpha = Math.Clamp(alpha, 0f, 1f);
+		canvas.DrawImage(image, dx, dy, dw, dh);
+		canvas.Alpha = 1f;
 	}
 
 	private void DrawModuleDebugOverlay(ICanvas canvas)

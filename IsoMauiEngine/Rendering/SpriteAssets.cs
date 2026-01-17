@@ -11,6 +11,7 @@ public static class SpriteAssets
 
 	public static SpriteSheet? EngineerWalking { get; private set; }
 	public static Microsoft.Maui.Graphics.IImage? DeckPlateNormal { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? WorldBackground { get; private set; }
 
 	public static bool IsReady => EngineerWalking is not null;
 
@@ -75,7 +76,26 @@ public static class SpriteAssets
 				RouteDebugLogger.Log("[Sprite] Failed to load DeckPlateNormal");
 			}
 
-			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Deck={DeckPlateNormal is not null})");
+			// World background image (screen-space).
+			// Note: package filename (Resources/Raw/sprites/MilkyWayPanorama8K.jpg).
+			if (WorldBackground is null)
+			{
+				var bgImage = await TryLoadImageAsync(
+					"sprites/MilkyWayPanorama8K.jpg",
+					"sprites/milkywaypanorama8k.jpg").ConfigureAwait(false);
+
+				if (bgImage is not null)
+				{
+					WorldBackground = bgImage;
+					RouteDebugLogger.Log($"[Sprite] Loaded WorldBackground {bgImage.Width}x{bgImage.Height}");
+				}
+				else
+				{
+					RouteDebugLogger.Log("[Sprite] Failed to load WorldBackground");
+				}
+			}
+
+			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Deck={DeckPlateNormal is not null}, Bg={WorldBackground is not null})");
 		}
 		finally
 		{

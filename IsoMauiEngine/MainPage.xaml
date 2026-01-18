@@ -8,7 +8,11 @@
         <GraphicsView x:Name="GameView"
                       BackgroundColor="#101418"
                       HorizontalOptions="Fill"
-                      VerticalOptions="Fill" />
+                      VerticalOptions="Fill">
+            <GraphicsView.GestureRecognizers>
+                <PointerGestureRecognizer PointerPressed="OnPointerPressed" />
+            </GraphicsView.GestureRecognizers>
+        </GraphicsView>
 
         <Border Margin="12"
                 Padding="10"

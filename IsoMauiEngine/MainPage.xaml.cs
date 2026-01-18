@@ -33,6 +33,16 @@ public partial class MainPage : ContentPage
 		TryHookKeyboard();
 	}
 
+	private void OnPointerPressed(object? sender, PointerEventArgs e)
+	{
+		var pos = e.GetPosition(GameView);
+		if (!pos.HasValue)
+		{
+			return;
+		}
+		_host.Navigation.HandleLeftClickScreen(new System.Numerics.Vector2((float)pos.Value.X, (float)pos.Value.Y));
+	}
+
 	protected override void OnDisappearing()
 	{
 		if (ReferenceEquals(GameInputRouter.CurrentInput, _host.Input))

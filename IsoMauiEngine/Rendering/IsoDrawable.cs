@@ -71,7 +71,45 @@ public sealed class IsoDrawable : IDrawable
 
 		if (_host.Input.DebugOverlayEnabled)
 		{
+			DrawNavigationDebug(canvas);
 			DrawModuleDebugOverlay(canvas);
+		}
+	}
+
+	private void DrawNavigationDebug(ICanvas canvas)
+	{
+		var nav = _host.Navigation;
+		canvas.FontColor = Colors.White;
+		canvas.FontSize = 12;
+		canvas.DrawString($"Mode: {nav.CurrentMode}", 8, 26, HorizontalAlignment.Left);
+		canvas.DrawString($"Navigator: {nav.ActiveNavigator}", 8, 42, HorizontalAlignment.Left);
+
+		var path = nav.CurrentPath;
+		if (path is null || !path.IsValid || path.Waypoints.Count == 0)
+		{
+			return;
+		}
+
+		// Draw waypoint polyline in screen-space.
+		canvas.StrokeColor = Color.FromArgb("#FFD166");
+		canvas.StrokeSize = 2;
+		for (var i = 0; i < path.Waypoints.Count - 1; i++)
+		{
+			var a = _host.Camera.WorldToScreen(path.Waypoints[i]);
+			var b = _host.Camera.WorldToScreen(path.Waypoints[i + 1]);
+			canvas.DrawLine(a.X, a.Y, b.X, b.Y);
+		}
+
+		canvas.FillColor = Color.FromArgb("#FFD166");
+		for (var i = 0; i < path.Waypoints.Count; i++)
+		{
+			var p = _host.Camera.WorldToScreen(path.Waypoints[i]);
+			canvas.FillCircle(p.X, p.Y, 4 * _host.Camera.Zoom);
+		}
+
+		if (!string.IsNullOrWhiteSpace(path.DebugInfo))
+		{
+			canvas.DrawString(path.DebugInfo, 8, 58, HorizontalAlignment.Left);
 		}
 	}
 

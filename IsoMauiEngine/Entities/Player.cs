@@ -7,20 +7,34 @@ namespace IsoMauiEngine.Entities;
 
 public sealed class Player : Entity
 {
-	private const float Speed = 50f;
 	private const float WalkFps = 3.5f;
 	private const int WalkFrames = 4;
 
-	public Func<Vector2, bool>? CanMoveToWorld { get; set; }
 	private Direction8 _facing = Direction8.S;
 	private float _animSeconds;
 	private bool _isMoving;
+	private Vector2 _worldVelocity;
+
+	public void SetMotion(Vector2 worldVelocity, bool isMoving)
+	{
+		_worldVelocity = worldVelocity;
+		_isMoving = isMoving;
+		if (!isMoving)
+		{
+			return;
+		}
+
+		// Convert world direction back to "move-space" used by FacingFromVector.
+		// Inverse of: world = (mx - my, 0.5*(mx + my))
+		var dx = worldVelocity.X;
+		var dy = worldVelocity.Y;
+		var mx = dy + dx * 0.5f;
+		var my = dy - dx * 0.5f;
+		_facing = FacingFromVector(new Vector2(mx, my));
+	}
 
 	public override void Update(float dt, InputState input)
 	{
-		var move = input.GetMoveVector();
-		_isMoving = move != Vector2.Zero;
-
 		if (!_isMoving)
 		{
 			_animSeconds = 0f;
@@ -28,24 +42,6 @@ public sealed class Player : Entity
 		}
 
 		_animSeconds += dt;
-
-		// Convert move vector to isometric world delta per prompt.
-		var iso = new Vector2(move.X - move.Y, (move.X + move.Y) * 0.5f);
-		if (iso.LengthSquared() > 0.0001f)
-		{
-			iso = Vector2.Normalize(iso);
-		}
-
-		var next = WorldPos + iso * (Speed * dt);
-		if (CanMoveToWorld?.Invoke(next) ?? true)
-		{
-			WorldPos = next;
-		}
-		else
-		{
-			_isMoving = false;
-		}
-		_facing = FacingFromVector(move);
 	}
 
 	public override void EmitDrawItems(List<DrawItem> drawItems)

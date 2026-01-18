@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using IsoMauiEngine.Navigation;
 using IsoMauiEngine.Rendering;
 using IsoMauiEngine.World;
 using Microsoft.Maui.Dispatching;
@@ -24,6 +25,7 @@ public sealed class GameHost
 		Renderer = new Renderer2D(Camera);
 
 		World = new GameWorld();
+		Navigation = new NavigationManager(World, Camera);
 		FocusOnPlayer();
 	}
 
@@ -32,6 +34,7 @@ public sealed class GameHost
 	public Camera2D Camera { get; }
 	public Renderer2D Renderer { get; }
 	public GameClock Clock { get; }
+	public NavigationManager Navigation { get; }
 
 	/// <summary>
 	/// Provides the world-space point the camera should be centered on.
@@ -91,6 +94,7 @@ public sealed class GameHost
 
 	private void Update(float dt)
 	{
+		Navigation.Update(dt);
 		World.Update(dt, Input);
 		UpdateCamera();
 	}

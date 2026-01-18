@@ -1,0 +1,124 @@
+using System.Numerics;
+using IsoMauiEngine.Iso;
+using IsoMauiEngine.Navigation;
+
+namespace IsoMauiEngine.World.Modules;
+
+public sealed class ShipModuleInstance
+{
+	private static int NextId;
+	private readonly ModuleCell[,] _cells;
+
+	public ShipModuleInstance(ModuleBlueprint blueprint, ModuleSizePreset sizePreset, int originX, int originY)
+	{
+		ModuleId = Interlocked.Increment(ref NextId);
+		Blueprint = blueprint;
+		SizePreset = sizePreset;
+		OriginX = originX;
+		OriginY = originY;
+
+		Width = blueprint.Width;
+		Height = blueprint.Height;
+
+		_cells = new ModuleCell[Width, Height];
+		GenerateCells();
+	}
+
+	public int ModuleId { get; }
+	public ModuleSizePreset SizePreset { get; }
+
+	public ModuleBlueprint Blueprint { get; }
+	public int OriginX { get; }
+	public int OriginY { get; }
+
+	// World-space translation applied to every tile in the module (for RCS movement).
+	public Vector2 WorldOffset { get; set; }
+
+	public int Width { get; }
+	public int Height { get; }
+
+	public (int x, int y) GetDoorWorldCell(DoorSide side)
+	{
+		return side switch
+		{
+			DoorSide.North => WorldGridOf(Blueprint.NorthDoor),
+			DoorSide.South => WorldGridOf(Blueprint.SouthDoor),
+			DoorSide.West => WorldGridOf(Blueprint.WestDoor),
+			DoorSide.East => WorldGridOf(Blueprint.EastDoor),
+			_ => WorldGridOf(Blueprint.NorthDoor)
+		};
+	}
+
+	public Vector2 GetDoorWorldPos(DoorSide side)
+	{
+		var c = GetDoorWorldCell(side);
+		return IsoMath.GridToWorld(c.x, c.y) + WorldOffset;
+	}
+
+	public Vector2 GetWorldCenter()
+	{
+		var gx = OriginX + (Width / 2);
+		var gy = OriginY + (Height / 2);
+		return IsoMath.GridToWorld(gx, gy) + WorldOffset;
+	}
+
+	public bool TryGetCell(int worldGridX, int worldGridY, out ModuleCell cell)
+	{
+		var x = worldGridX - OriginX;
+		var y = worldGridY - OriginY;
+		if ((uint)x >= (uint)Width || (uint)y >= (uint)Height)
+		{
+			cell = default;
+			return false;
+		}
+
+		cell = _cells[x, y];
+		return true;
+	}
+
+	public (int x, int y) WorldGridOf(Vector2 localGrid)
+	{
+		return ((int)localGrid.X + OriginX, (int)localGrid.Y + OriginY);
+	}
+
+	private void GenerateCells()
+	{
+		// Defaults: floor everywhere.
+		for (var y = 0; y < Height; y++)
+		{
+			for (var x = 0; x < Width; x++)
+			{
+				_cells[x, y] = new ModuleCell(CellKind.Floor, Walkable: true, Height: 0f);
+			}
+		}
+
+		// Perimeter walls.
+		for (var y = 0; y < Height; y++)
+		{
+			for (var x = 0; x < Width; x++)
+			{
+				if (Blueprint.IsWallCell(x, y))
+				{
+					_cells[x, y] = new ModuleCell(CellKind.Wall, Walkable: false, Height: 1f);
+				}
+			}
+		}
+
+		// Doors (walkable for now).
+		foreach (var (dx, dy) in Blueprint.EnumerateDoorCells())
+		{
+			if ((uint)dx < (uint)Width && (uint)dy < (uint)Height)
+			{
+				_cells[dx, dy] = new ModuleCell(CellKind.Door, Walkable: true, Height: 1f);
+			}
+		}
+
+		// RCS control marker.
+		var rcsX = (int)Blueprint.RcsControl.X;
+		var rcsY = (int)Blueprint.RcsControl.Y;
+		if ((uint)rcsX < (uint)Width && (uint)rcsY < (uint)Height)
+		{
+			_cells[rcsX, rcsY] = new ModuleCell(CellKind.RcsControl, Walkable: true, Height: 0f);
+		}
+	}
+}

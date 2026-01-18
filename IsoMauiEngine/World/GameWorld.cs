@@ -10,6 +10,10 @@ namespace IsoMauiEngine.World;
 
 public sealed class GameWorld
 {
+	private const float DoorLinkBreakDistance = 28f;
+	private const float LinkValidationIntervalSeconds = 0.25f;
+	private float _linkValidationTimer;
+
 	private readonly List<Entity> _entities = new();
 	private readonly List<ShipModuleInstance> _modules = new();
 	private readonly List<ModuleGridMap> _moduleMaps = new();
@@ -18,17 +22,16 @@ public sealed class GameWorld
 
 	public GameWorld()
 	{
+		ModuleGraph = new ModuleGraph();
 		BuildScene();
 		_spawnWorldPos = ComputeSpawnAfterPlacement();
-
+		
 		Player = new Player
 		{
 			WorldPos = _spawnWorldPos
 		};
 
 		_entities.Add(Player);
-
-		ModuleGraph = new ModuleGraph();
 	}
 
 	/// <summary>
@@ -50,6 +53,13 @@ public sealed class GameWorld
 
 	public void Update(float dt, InputState input)
 	{
+		_linkValidationTimer += dt;
+		if (_linkValidationTimer >= LinkValidationIntervalSeconds)
+		{
+			_linkValidationTimer = 0f;
+			ValidateDoorLinks();
+		}
+
 		for (var i = 0; i < _entities.Count; i++)
 		{
 			_entities[i].Update(dt, input);
@@ -162,16 +172,200 @@ public sealed class GameWorld
 	{
 		_modules.Clear();
 		_moduleMaps.Clear();
+		_spaceObstacles.Clear();
 
-		// First generated room (Medium) at origin for now.
-		var firstBlueprint = BlueprintLibrary.Get(ModuleSizePreset.Medium);
-		var first = new ShipModuleInstance(firstBlueprint, ModuleSizePreset.Medium, originX: 0, originY: 0);
-		_modules.Add(first);
-		_moduleMaps.Add(new ModuleGridMap(first));
+		// Deterministic "salvage demo" scene:
+		// - Starter ship near origin with linked modules
+		// - Wreck far away that requires EVA
+		// - Detached wreck modules nearby
+		// - Debris obstacles between clusters
+		// No rotation anywhere; placement uses WorldOffset only.
 
-		// Default: no links yet (single module).
+		ShipModuleInstance AddModule(ModuleSizePreset preset, Vector2 worldOffset, bool isDerelict)
+		{
+			var bp = BlueprintLibrary.Get(preset);
+			var m = new ShipModuleInstance(bp, preset, originX: 0, originY: 0)
+			{
+				WorldOffset = worldOffset,
+				IsDerelict = isDerelict
+			};
+			_modules.Add(m);
+			_moduleMaps.Add(new ModuleGridMap(m));
+			return m;
+		}
 
-		// Future: add more rooms here, then spawn selection uses the first room after placement.
+		void AlignAndLink(ShipModuleInstance a, DoorSide sideA, ShipModuleInstance b, DoorSide sideB, float maxAlignDistance)
+		{
+			// Align B so its door matches A's door, then link the doors.
+			var aDoor = a.GetDoorWorldPos(sideA);
+			var bDoor = b.GetDoorWorldPos(sideB);
+			b.WorldOffset += (aDoor - bDoor);
+
+			var bDoor2 = b.GetDoorWorldPos(sideB);
+			if (Vector2.Distance(aDoor, bDoor2) <= maxAlignDistance)
+			{
+				ModuleGraph.TryLinkDoors(a.ModuleId, sideA, b.ModuleId, sideB);
+			}
+		}
+
+		// --- Starter ship (near origin) ---
+		var starterOrigin = Vector2.Zero;
+		var starterCommand = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
+		var starterCargo = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
+		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		var starterGenerator = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		var starterLifeSupport = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		var starterEngine = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
+
+		// Link/align modules (example graph):
+		// Command East <-> Cargo West
+		// Command South <-> Airlock North
+		// Cargo South <-> Generator North
+		// Cargo East <-> LifeSupport West
+		// Command West <-> Engine East (optional)
+		AlignAndLink(starterCommand, DoorSide.East, starterCargo, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndLink(starterCommand, DoorSide.South, starterAirlock, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndLink(starterCargo, DoorSide.South, starterGenerator, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndLink(starterCargo, DoorSide.East, starterLifeSupport, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndLink(starterCommand, DoorSide.West, starterEngine, DoorSide.East, maxAlignDistance: 1f);
+
+		// --- Wreck (far away) ---
+		var wreckBase = new Vector2(2600f, 1400f);
+		var wreckCommand = AddModule(ModuleSizePreset.Medium, wreckBase, isDerelict: true);
+		var wreckCargo = AddModule(ModuleSizePreset.Medium, wreckBase, isDerelict: true);
+		var wreckGen = AddModule(ModuleSizePreset.Small, wreckBase, isDerelict: true);
+		var wreckLife = AddModule(ModuleSizePreset.Small, wreckBase, isDerelict: true);
+		var wreckEngine = AddModule(ModuleSizePreset.Medium, wreckBase, isDerelict: true);
+
+		// Partial linked cluster in the wreck.
+		AlignAndLink(wreckCommand, DoorSide.East, wreckCargo, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndLink(wreckCargo, DoorSide.South, wreckGen, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndLink(wreckCommand, DoorSide.West, wreckEngine, DoorSide.East, maxAlignDistance: 1f);
+		// Leave wreckLife detached but nearby.
+		wreckLife.WorldOffset += new Vector2(220f, -120f);
+
+		// Additional detached wreck modules (free-floating nearby).
+		var wreckDetached1 = AddModule(ModuleSizePreset.Small, wreckBase + new Vector2(-260f, 180f), isDerelict: true);
+		var wreckDetached2 = AddModule(ModuleSizePreset.Medium, wreckBase + new Vector2(360f, 240f), isDerelict: true);
+
+		// --- Debris / space obstacles ---
+		SeedDebrisObstacles(
+			starterCenter: starterCommand.GetWorldCenter(),
+			wreckCenter: wreckCommand.GetWorldCenter());
+
+		// Treat detached derelict modules as EVA obstacles (keeps detours interesting).
+		AddModuleAsObstacleIfDetached(wreckLife);
+		AddModuleAsObstacleIfDetached(wreckDetached1);
+		AddModuleAsObstacleIfDetached(wreckDetached2);
+	}
+
+	private void AddModuleAsObstacleIfDetached(ShipModuleInstance module)
+	{
+		var linked = false;
+		foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
+		{
+			if (ModuleGraph.TryGetLink(module.ModuleId, side, out _))
+			{
+				linked = true;
+				break;
+			}
+		}
+		if (linked)
+		{
+			return;
+		}
+
+		var center = module.GetWorldCenter();
+		var r = ApproxModuleRadius(module) * 0.75f;
+		_spaceObstacles.Add(new CircleObstacle(center, MathF.Max(30f, r)));
+	}
+
+	private void SeedDebrisObstacles(Vector2 starterCenter, Vector2 wreckCenter)
+	{
+		// Seeded random so the demo scene is repeatable.
+		var rng = new Random(1337);
+		var dir = wreckCenter - starterCenter;
+		var len = MathF.Max(1f, dir.Length());
+		var n = dir / len;
+		var perp = new Vector2(-n.Y, n.X);
+
+		bool IsTooCloseToAnyModule(Vector2 p, float radius)
+		{
+			for (var i = 0; i < _modules.Count; i++)
+			{
+				var m = _modules[i];
+				var c = m.GetWorldCenter();
+				var r = ApproxModuleRadius(m) + radius + 24f;
+				if (Vector2.DistanceSquared(p, c) <= r * r)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// Debris between starter and wreck.
+		var desired = 26;
+		var tries = 0;
+		while (_spaceObstacles.Count < desired && tries++ < 800)
+		{
+			var t = 0.12f + (float)rng.NextDouble() * 0.76f;
+			var along = starterCenter + n * (len * t);
+			var lateral = ((float)rng.NextDouble() - 0.5f) * 520f;
+			var p = along + perp * lateral;
+			var radius = 18f + (float)rng.NextDouble() * 32f;
+			if (IsTooCloseToAnyModule(p, radius))
+			{
+				continue;
+			}
+			_spaceObstacles.Add(new CircleObstacle(p, radius));
+		}
+
+		// Extra debris around the wreck.
+		var around = 16;
+		tries = 0;
+		while (_spaceObstacles.Count < desired + around && tries++ < 900)
+		{
+			var angle = (float)rng.NextDouble() * MathF.Tau;
+			var dist = 160f + (float)rng.NextDouble() * 620f;
+			var p = wreckCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * dist;
+			var radius = 16f + (float)rng.NextDouble() * 28f;
+			if (IsTooCloseToAnyModule(p, radius))
+			{
+				continue;
+			}
+			_spaceObstacles.Add(new CircleObstacle(p, radius));
+		}
+	}
+
+	private static float ApproxModuleRadius(ShipModuleInstance module)
+	{
+		// Cheap bound in world units. (No rotation.)
+		var maxDim = Math.Max(module.Width, module.Height);
+		return (MathF.Max(1, maxDim - 1) * (IsoMath.TileWidth / 4f)) + 70f;
+	}
+
+	private void ValidateDoorLinks()
+	{
+		var links = ModuleGraph.EnumerateUniqueLinksSnapshot();
+		for (var i = 0; i < links.Count; i++)
+		{
+			var (a, b) = links[i];
+			var ma = GetModuleById(a.ModuleId);
+			var mb = GetModuleById(b.ModuleId);
+			if (ma is null || mb is null)
+			{
+				ModuleGraph.UnlinkDoor(a.ModuleId, a.Side);
+				continue;
+			}
+
+			var pa = ma.GetDoorWorldPos(a.Side);
+			var pb = mb.GetDoorWorldPos(b.Side);
+			if (Vector2.Distance(pa, pb) > DoorLinkBreakDistance)
+			{
+				ModuleGraph.UnlinkDoor(a.ModuleId, a.Side);
+			}
+		}
 	}
 
 	private Vector2 ComputeSpawnAfterPlacement()

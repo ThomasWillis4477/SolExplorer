@@ -59,6 +59,29 @@ public sealed class ModuleGraph
 		return _links.TryGetValue(new DoorKey(module, side), out link);
 	}
 
+	public List<(DoorKey A, DoorKey B)> EnumerateUniqueLinksSnapshot()
+	{
+		var result = new List<(DoorKey A, DoorKey B)>();
+		foreach (var kvp in _links)
+		{
+			var a = kvp.Key;
+			var bLink = kvp.Value;
+			var b = new DoorKey(bLink.OtherModuleId, bLink.OtherSide);
+
+			// Each link is stored twice; only return one direction.
+			if (a.ModuleId < b.ModuleId)
+			{
+				result.Add((a, b));
+				continue;
+			}
+			if (a.ModuleId == b.ModuleId && (int)a.Side < (int)b.Side)
+			{
+				result.Add((a, b));
+			}
+		}
+		return result;
+	}
+
 	public List<int> FindModuleRoute(int startModuleId, int goalModuleId)
 	{
 		// BFS over module graph using door links.

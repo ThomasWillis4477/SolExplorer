@@ -1,6 +1,7 @@
 using System.Numerics;
 using IsoMauiEngine.Engine;
 using IsoMauiEngine.Iso;
+using IsoMauiEngine.Navigation;
 using Microsoft.Maui.Graphics;
 
 namespace IsoMauiEngine.Rendering;
@@ -135,12 +136,35 @@ public sealed class IsoDrawable : IDrawable
 	private void DrawModuleDebugOverlay(ICanvas canvas)
 	{
 		var modules = _host.World.Modules;
+		var graph = _host.World.ModuleGraph;
+
+		// Door link lines first (so the module/door markers draw above them).
+		var links = graph.EnumerateUniqueLinksSnapshot();
+		canvas.StrokeColor = Color.FromArgb("#2EC4B6");
+		canvas.StrokeSize = 2;
+		for (var i = 0; i < links.Count; i++)
+		{
+			var (a, b) = links[i];
+			var ma = _host.World.GetModuleById(a.ModuleId);
+			var mb = _host.World.GetModuleById(b.ModuleId);
+			if (ma is null || mb is null)
+			{
+				continue;
+			}
+
+			var pa = _host.Camera.WorldToScreen(ma.GetDoorWorldPos(a.Side));
+			var pb = _host.Camera.WorldToScreen(mb.GetDoorWorldPos(b.Side));
+			canvas.DrawLine(pa.X, pa.Y, pb.X, pb.Y);
+		}
+
 		for (var mi = 0; mi < modules.Count; mi++)
 		{
 			var module = modules[mi];
 			var blueprint = module.Blueprint;
 
-			canvas.StrokeColor = Color.FromArgb("#5AA9E6");
+			canvas.StrokeColor = module.IsDerelict
+				? Color.FromArgb("#BFC0C0")
+				: Color.FromArgb("#5AA9E6");
 			canvas.StrokeSize = 2;
 
 			// Outline (diamond) using the 4 grid corners.
@@ -149,24 +173,30 @@ public sealed class IsoDrawable : IDrawable
 			var br = new Vector2(module.OriginX + module.Width - 1, module.OriginY + module.Height - 1);
 			var bl = new Vector2(module.OriginX, module.OriginY + module.Height - 1);
 
-			var pTl = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)tl.X, (int)tl.Y));
-			var pTr = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)tr.X, (int)tr.Y));
-			var pBr = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)br.X, (int)br.Y));
-			var pBl = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)bl.X, (int)bl.Y));
+			var pTl = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)tl.X, (int)tl.Y) + module.WorldOffset);
+			var pTr = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)tr.X, (int)tr.Y) + module.WorldOffset);
+			var pBr = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)br.X, (int)br.Y) + module.WorldOffset);
+			var pBl = _host.Camera.WorldToScreen(IsoMath.GridToWorld((int)bl.X, (int)bl.Y) + module.WorldOffset);
 
 			canvas.DrawLine(pTl.X, pTl.Y, pTr.X, pTr.Y);
 			canvas.DrawLine(pTr.X, pTr.Y, pBr.X, pBr.Y);
 			canvas.DrawLine(pBr.X, pBr.Y, pBl.X, pBl.Y);
 			canvas.DrawLine(pBl.X, pBl.Y, pTl.X, pTl.Y);
 
-			// Door positions.
-			canvas.StrokeColor = Colors.Orange;
+			// Module label.
+			var center = _host.Camera.WorldToScreen(module.GetWorldCenter());
+			canvas.FontSize = 10;
+			canvas.FontColor = module.IsDerelict ? Color.FromArgb("#FF6B6B") : Colors.White;
+			var label = module.IsDerelict ? $"#{module.ModuleId} DERELICT" : $"#{module.ModuleId}";
+			canvas.DrawString(label, center.X - 90, center.Y - 18, 180, 20, HorizontalAlignment.Center, VerticalAlignment.Center);
+
+			// Door positions (color by link state).
 			canvas.StrokeSize = 2;
-			foreach (var (dx, dy) in blueprint.EnumerateDoorCells())
+			foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
 			{
-				var wx = module.OriginX + dx;
-				var wy = module.OriginY + dy;
-				var p = _host.Camera.WorldToScreen(IsoMath.GridToWorld(wx, wy));
+				var linked = graph.TryGetLink(module.ModuleId, side, out _);
+				canvas.StrokeColor = linked ? Color.FromArgb("#06D6A0") : Colors.Orange;
+				var p = _host.Camera.WorldToScreen(module.GetDoorWorldPos(side));
 				canvas.DrawCircle(p.X, p.Y, 6 * _host.Camera.Zoom);
 			}
 		}

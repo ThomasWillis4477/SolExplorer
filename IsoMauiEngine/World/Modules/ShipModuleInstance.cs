@@ -37,6 +37,8 @@ public sealed class ShipModuleInstance
 	public int Width { get; }
 	public int Height { get; }
 
+	public bool IsDerelict { get; set; }
+
 	public (int x, int y) GetDoorWorldCell(DoorSide side)
 	{
 		return side switch

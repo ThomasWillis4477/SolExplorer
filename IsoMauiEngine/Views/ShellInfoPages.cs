@@ -1,5 +1,3 @@
-using IsoMauiEngine.Diagnostics;
-
 namespace IsoMauiEngine.Views;
 
 internal static class InfoPageFactory
@@ -40,79 +38,11 @@ internal static class InfoPageFactory
 			}
 		};
 
-		var overlay = new Border
-		{
-			Margin = 12,
-			Padding = 10,
-			HorizontalOptions = LayoutOptions.Start,
-			VerticalOptions = LayoutOptions.Start,
-			BackgroundColor = Color.FromArgb("#AA000000"),
-			Stroke = Color.FromArgb("#33000000"),
-			StrokeThickness = 1,
-			Content = new VerticalStackLayout
-			{
-				Spacing = 2,
-				Children =
-				{
-					new Label { Text = "Route debug", FontSize = 12, TextColor = Colors.White, Opacity = 0.9 },
-					new Label
-					{
-						FontSize = 12,
-						TextColor = Colors.White,
-						FormattedText = new FormattedString
-						{
-							Spans =
-							{
-								new Span { Text = "Current: " },
-								new Span { Text = RouteDebugState.Instance.CurrentLocation },
-							}
-						}
-					},
-					new Label
-					{
-						FontSize = 12,
-						TextColor = Colors.White,
-						FormattedText = new FormattedString
-						{
-							Spans =
-							{
-								new Span { Text = "Navigating: " },
-								new Span { Text = RouteDebugState.Instance.LastNavigating },
-							}
-						}
-					},
-					new Label
-					{
-						FontSize = 12,
-						TextColor = Colors.White,
-						FormattedText = new FormattedString
-						{
-							Spans =
-							{
-								new Span { Text = "Navigated: " },
-								new Span { Text = RouteDebugState.Instance.LastNavigated },
-							}
-						}
-					},
-				}
-			}
-		};
-
-		// Keep overlay text updated.
-		overlay.BindingContext = RouteDebugState.Instance;
-		((Label)((VerticalStackLayout)overlay.Content).Children[1]).SetBinding(Label.TextProperty, nameof(RouteDebugState.CurrentLocation), stringFormat: "Current: {0}");
-		((Label)((VerticalStackLayout)overlay.Content).Children[2]).SetBinding(Label.TextProperty, nameof(RouteDebugState.LastNavigating), stringFormat: "Navigating: {0}");
-		((Label)((VerticalStackLayout)overlay.Content).Children[3]).SetBinding(Label.TextProperty, nameof(RouteDebugState.LastNavigated), stringFormat: "Navigated: {0}");
-
-		var root = new Grid();
-		root.Children.Add(content);
-		root.Children.Add(overlay);
-
 		return new ContentPage
 		{
 			Title = title,
 			BackgroundColor = Color.FromArgb("#0B0F14"),
-			Content = root
+			Content = content
 		};
 	}
 }

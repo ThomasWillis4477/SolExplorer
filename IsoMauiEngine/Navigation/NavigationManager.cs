@@ -103,7 +103,7 @@ public sealed class NavigationManager
 		if (startInside && !targetInside)
 		{
 			ActiveNavigator = "Grid+Space";
-			var toDoor = _grid.ComputeExitToNearestDoor(startWorld);
+			var toDoor = _grid.ComputeExitViaAirlock(startWorld, targetWorld);
 			if (!toDoor.IsValid || toDoor.Waypoints.Count == 0)
 			{
 				_playerMover.SetPath(toDoor);
@@ -121,7 +121,12 @@ public sealed class NavigationManager
 		if (!startInside && targetInside)
 		{
 			ActiveNavigator = "Space+Grid";
-			var toDoor = _grid.ComputeEntryFromNearestDoor(targetWorld);
+			var toDoor = _grid.ComputeEntryViaAirlock(startWorld, targetWorld);
+			if (!toDoor.IsValid || toDoor.Waypoints.Count == 0)
+			{
+				// Fallback: allow entering via any walkable door if no airlock exterior door is reachable.
+				toDoor = _grid.ComputeEntryFromNearestDoor(startWorld, targetWorld);
+			}
 			if (!toDoor.IsValid || toDoor.Waypoints.Count == 0)
 			{
 				_playerMover.SetPath(toDoor);

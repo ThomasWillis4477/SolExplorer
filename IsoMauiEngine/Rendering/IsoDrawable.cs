@@ -85,7 +85,23 @@ public sealed class IsoDrawable : IDrawable
 		canvas.DrawString($"Mode: {nav.CurrentMode}", 8, 26, HorizontalAlignment.Left);
 		canvas.DrawString($"Navigator: {nav.ActiveNavigator}", 8, 42, HorizontalAlignment.Left);
 
+		var lineY = 58f;
 		var path = nav.CurrentPath;
+		if (path is not null && !string.IsNullOrWhiteSpace(path.DebugInfo))
+		{
+			canvas.DrawString(path.DebugInfo, 8, lineY, HorizontalAlignment.Left);
+			lineY += 16f;
+		}
+
+		var locationText = "Location: In Space";
+		if (_host.World.TryFindContainingModule(_host.World.Player.WorldPos, out var m, out _))
+		{
+			locationText = m.IsAirlock
+				? $"Location: Airlock #{m.ModuleId}"
+				: $"Location: #{m.ModuleId}";
+		}
+		canvas.DrawString(locationText, 8, lineY, HorizontalAlignment.Left);
+
 		if (path is null || !path.IsValid || path.Waypoints.Count == 0)
 		{
 			return;
@@ -108,10 +124,7 @@ public sealed class IsoDrawable : IDrawable
 			canvas.FillCircle(p.X, p.Y, 4 * _host.Camera.Zoom);
 		}
 
-		if (!string.IsNullOrWhiteSpace(path.DebugInfo))
-		{
-			canvas.DrawString(path.DebugInfo, 8, 58, HorizontalAlignment.Left);
-		}
+		// DebugInfo and location are drawn above.
 	}
 
 	private static void DrawBackgroundCover(ICanvas canvas, RectF viewport, Microsoft.Maui.Graphics.IImage image, float alpha)
@@ -195,7 +208,10 @@ public sealed class IsoDrawable : IDrawable
 			foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
 			{
 				var linked = graph.TryGetLink(module.ModuleId, side, out _);
-				canvas.StrokeColor = linked ? Color.FromArgb("#06D6A0") : Colors.Orange;
+				// Linked = docked door (green). Airlock doors are walkable even when unlinked (blue).
+				canvas.StrokeColor = linked
+					? Color.FromArgb("#06D6A0")
+					: (module.IsAirlock ? Color.FromArgb("#4D96FF") : Colors.Orange);
 				var p = _host.Camera.WorldToScreen(module.GetDoorWorldPos(side));
 				canvas.DrawCircle(p.X, p.Y, 6 * _host.Camera.Zoom);
 			}

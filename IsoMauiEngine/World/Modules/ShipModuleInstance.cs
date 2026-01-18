@@ -38,6 +38,38 @@ public sealed class ShipModuleInstance
 	public int Height { get; }
 
 	public bool IsDerelict { get; set; }
+	public bool IsAirlock { get; set; }
+
+	public bool TryGetDoorSideAtWorldCell(int worldGridX, int worldGridY, out DoorSide side)
+	{
+		var n = GetDoorWorldCell(DoorSide.North);
+		if (n.x == worldGridX && n.y == worldGridY)
+		{
+			side = DoorSide.North;
+			return true;
+		}
+		var s = GetDoorWorldCell(DoorSide.South);
+		if (s.x == worldGridX && s.y == worldGridY)
+		{
+			side = DoorSide.South;
+			return true;
+		}
+		var w = GetDoorWorldCell(DoorSide.West);
+		if (w.x == worldGridX && w.y == worldGridY)
+		{
+			side = DoorSide.West;
+			return true;
+		}
+		var e = GetDoorWorldCell(DoorSide.East);
+		if (e.x == worldGridX && e.y == worldGridY)
+		{
+			side = DoorSide.East;
+			return true;
+		}
+
+		side = DoorSide.North;
+		return false;
+	}
 
 	public (int x, int y) GetDoorWorldCell(DoorSide side)
 	{

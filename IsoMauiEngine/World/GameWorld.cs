@@ -93,13 +93,17 @@ public sealed class GameWorld
 		// Space -> module: only allow entering via a door tile.
 		if (!curInside && nextInside)
 		{
-			return TryGetCellKind(nextModule, nextCell, out var k) && k == CellKind.Door;
+			return TryGetCellKind(nextModule, nextCell, out var k)
+				&& k == CellKind.Door
+				&& IsDoorTilePassable(nextModule, nextCell.X, nextCell.Y);
 		}
 
 		// Module -> space: only allow exiting via a door tile.
 		if (curInside && !nextInside)
 		{
-			return TryGetCellKind(curModule, curCell, out var k) && k == CellKind.Door;
+			return TryGetCellKind(curModule, curCell, out var k)
+				&& k == CellKind.Door
+				&& IsDoorTilePassable(curModule, curCell.X, curCell.Y);
 		}
 
 		// Module -> module: enforce walkability on the destination cell.
@@ -117,10 +121,30 @@ public sealed class GameWorld
 		{
 			if (_moduleMaps[i].Module.ModuleId == module.ModuleId)
 			{
+				if (_moduleMaps[i].TryGetCellKind(worldGridX, worldGridY, out var kind)
+					&& kind == CellKind.Door
+					&& !IsDoorTilePassable(module, worldGridX, worldGridY))
+				{
+					return false;
+				}
 				return _moduleMaps[i].IsWalkableCell(worldGridX, worldGridY);
 			}
 		}
 		return false;
+	}
+
+	private bool IsDoorTilePassable(ShipModuleInstance module, int worldGridX, int worldGridY)
+	{
+		if (module.IsAirlock)
+		{
+			return true;
+		}
+		if (!module.TryGetDoorSideAtWorldCell(worldGridX, worldGridY, out var side))
+		{
+			// If we can't map it to a side, fall back to blueprint walkability.
+			return true;
+		}
+		return ModuleGraph.TryGetLink(module.ModuleId, side, out _);
 	}
 
 	public bool TryGetCellKind(ShipModuleInstance module, AStarGrid.Cell cell, out CellKind kind)
@@ -213,6 +237,7 @@ public sealed class GameWorld
 		var starterCommand = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 		var starterCargo = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		starterAirlock.IsAirlock = true;
 		var starterGenerator = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		var starterLifeSupport = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		var starterEngine = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);

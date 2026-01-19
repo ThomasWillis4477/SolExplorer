@@ -17,6 +17,7 @@ public sealed class ModuleBlueprint
 
 		// Simple default marker position.
 		RcsControl = new Vector2(2 ,2);
+		Locker = new Vector2(-1, -1);
 	}
 
 	public int Width { get; }
@@ -28,6 +29,7 @@ public sealed class ModuleBlueprint
 	public Vector2 EastDoor { get; }
 
 	public Vector2 RcsControl { get; set; }
+	public Vector2 Locker { get; set; }
 
 	public bool IsWallCell(int x, int y)
 	{

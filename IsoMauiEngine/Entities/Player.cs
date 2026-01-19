@@ -7,6 +7,8 @@ namespace IsoMauiEngine.Entities;
 
 public sealed class Player : Entity
 {
+	public bool IsSuitEquipped { get; set; }
+
 	private const float WalkFps = 3.5f;
 	private const int WalkFrames = 4;
 
@@ -46,16 +48,24 @@ public sealed class Player : Entity
 
 	public override void EmitDrawItems(List<DrawItem> drawItems)
 	{
-		var frame = _isMoving ? (int)(_animSeconds * WalkFps) % WalkFrames : 0;
-		drawItems.Add(new DrawItem(
+		drawItems.Add(CreateDrawItem());
+	}
+
+	internal DrawItem CreateDrawItem()
+	{
+		var useSuitSprite = IsSuitEquipped;
+		var frame = useSuitSprite ? 0 : (_isMoving ? (int)(_animSeconds * WalkFps) % WalkFrames : 0);
+		var moving = useSuitSprite ? false : _isMoving;
+		return new DrawItem(
 			DrawItemType.Player,
 			WorldPos,
 			IsoMath.SortKey(WorldPos) + 0.001f,
 			_facing,
 			Frame: frame,
-			IsMoving: _isMoving,
+			IsMoving: moving,
 			LayerBias: 0f,
-			Kind: DrawKind.Entity));
+			Kind: DrawKind.Entity,
+			IsSuitEquipped: IsSuitEquipped);
 	}
 
 	private static Direction8 FacingFromVector(Vector2 move)

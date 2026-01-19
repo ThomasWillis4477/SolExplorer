@@ -49,6 +49,7 @@ public sealed class ModuleNavigator : INavigator
 		foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
 		{
 			var doorPos = moving.GetDoorWorldPos(side);
+			var seamStep = ShipModuleInstance.GetWorldStepForSide(side);
 			var opposite = side.Opposite();
 			for (var i = 0; i < _world.Modules.Count; i++)
 			{
@@ -58,9 +59,12 @@ public sealed class ModuleNavigator : INavigator
 					continue;
 				}
 				var otherDoorPos = other.GetDoorWorldPos(opposite);
-				if (Vector2.Distance(doorPos, otherDoorPos) <= _snapTolerance)
+				// Doors should end up adjacent across the seam, not coincident.
+				var desiredOtherDoorPos = doorPos + seamStep;
+				if (Vector2.Distance(desiredOtherDoorPos, otherDoorPos) <= _snapTolerance)
 				{
-					var delta = otherDoorPos - doorPos;
+					var desiredDoorPos = otherDoorPos - seamStep;
+					var delta = desiredDoorPos - doorPos;
 					moving.WorldOffset += delta;
 					_world.ModuleGraph.TryLinkDoors(moving.ModuleId, side, other.ModuleId, opposite);
 					return true;

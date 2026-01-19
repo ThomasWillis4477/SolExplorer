@@ -12,6 +12,40 @@
                 <PointerGestureRecognizer PointerPressed="OnPointerPressed" />
             </GraphicsView.GestureRecognizers>
         </GraphicsView>
+
+        <!-- Interaction popup overlay (shown after MoveThenInteract arrival) -->
+        <Grid x:Name="InteractionOverlay"
+              IsVisible="False"
+              BackgroundColor="#88000000">
+            <Frame
+                HorizontalOptions="Center"
+                VerticalOptions="Center"
+                BackgroundColor="#1A222B"
+                BorderColor="#2F3D49"
+                CornerRadius="12"
+                Padding="16"
+                HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label x:Name="InteractionTitle"
+                           Text="Interact"
+                           TextColor="White"
+                           FontSize="18"
+                           FontAttributes="Bold" />
+
+                    <Label x:Name="InteractionSubtitle"
+                           Text=""
+                           TextColor="#BFC0C0"
+                           FontSize="12" />
+
+                    <Button x:Name="InteractionPrimaryButton"
+                            Text="Action"
+                            Clicked="OnInteractionPrimaryClicked" />
+
+                    <Button Text="Cancel"
+                            Clicked="OnInteractionCancelClicked" />
+                </VerticalStackLayout>
+            </Frame>
+        </Grid>
     </Grid>
 
 </ContentPage>

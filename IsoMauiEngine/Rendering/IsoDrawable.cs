@@ -2,6 +2,7 @@ using System.Numerics;
 using IsoMauiEngine.Engine;
 using IsoMauiEngine.Iso;
 using IsoMauiEngine.Navigation;
+using IsoMauiEngine.World.Modules;
 using Microsoft.Maui.Graphics;
 
 namespace IsoMauiEngine.Rendering;
@@ -65,6 +66,8 @@ public sealed class IsoDrawable : IDrawable
 			_host.Renderer.DrawSpriteOrPlaceholder(canvas, _entityItems[i]);
 		}
 
+		DrawEvaHudIndicators(canvas, dirtyRect);
+
 		// Simple debug HUD
 		canvas.FontColor = Colors.White;
 		canvas.FontSize = 12;
@@ -77,6 +80,132 @@ public sealed class IsoDrawable : IDrawable
 		}
 	}
 
+	private void DrawEvaHudIndicators(ICanvas canvas, RectF viewport)
+	{
+		// Suit-gated EVA indicators.
+		if (!_host.World.Player.IsSuitEquipped)
+		{
+			return;
+		}
+		if (_host.World.TryFindContainingModule(_host.World.Player.WorldPos, out _, out _))
+		{
+			return;
+		}
+
+		var playerWorld = _host.World.Player.WorldPos;
+		var playerScreen = _host.Camera.WorldToScreen(playerWorld);
+		var margin = 26f;
+		var left = viewport.X + margin;
+		var right = viewport.X + viewport.Width - margin;
+		var top = viewport.Y + margin;
+		var bottom = viewport.Y + viewport.Height - margin;
+
+		ShipModuleInstance? home = null;
+		for (var i = 0; i < _host.World.Modules.Count; i++)
+		{
+			var m = _host.World.Modules[i];
+			if (m.IsCommandModule)
+			{
+				home = m;
+				break;
+			}
+		}
+
+		// Build a list of candidate derelict modules (nearest N).
+		var candidates = new List<(ShipModuleInstance m, float d2)>(capacity: 16);
+		for (var i = 0; i < _host.World.Modules.Count; i++)
+		{
+			var m = _host.World.Modules[i];
+			if (!m.IsDerelict)
+			{
+				continue;
+			}
+			var d2 = Vector2.DistanceSquared(playerWorld, m.GetWorldCenter());
+			candidates.Add((m, d2));
+		}
+		candidates.Sort(static (a, b) => a.d2.CompareTo(b.d2));
+		var max = Math.Min(6, candidates.Count);
+
+		// HOME indicator (single, distinct).
+		if (home is not null)
+		{
+			DrawEdgeArrow(canvas, playerScreen, _host.Camera.WorldToScreen(home.GetWorldCenter()), left, right, top, bottom,
+				color: Color.FromArgb("#06D6A0"), label: "HOME");
+		}
+
+		for (var i = 0; i < max; i++)
+		{
+			var m = candidates[i].m;
+			DrawEdgeArrow(canvas, playerScreen, _host.Camera.WorldToScreen(m.GetWorldCenter()), left, right, top, bottom,
+				color: Color.FromArgb("#FFD166"), label: $"#{m.ModuleId}");
+		}
+	}
+
+	private static void DrawEdgeArrow(
+		ICanvas canvas,
+		PointF from,
+		PointF to,
+		float left,
+		float right,
+		float top,
+		float bottom,
+		Color color,
+		string label)
+	{
+		var vx = (float)(to.X - from.X);
+		var vy = (float)(to.Y - from.Y);
+		var len = MathF.Sqrt(vx * vx + vy * vy);
+		if (len < 1e-3f)
+		{
+			return;
+		}
+		vx /= len;
+		vy /= len;
+
+		float tx = float.PositiveInfinity;
+		if (MathF.Abs(vx) > 1e-5f)
+		{
+			tx = vx > 0 ? (right - from.X) / vx : (left - from.X) / vx;
+		}
+		float ty = float.PositiveInfinity;
+		if (MathF.Abs(vy) > 1e-5f)
+		{
+			ty = vy > 0 ? (bottom - from.Y) / vy : (top - from.Y) / vy;
+		}
+		var t = MathF.Min(tx, ty);
+		if (!float.IsFinite(t) || t <= 0f)
+		{
+			return;
+		}
+
+		var px = from.X + vx * t;
+		var py = from.Y + vy * t;
+
+		// Arrow triangle.
+		var tip = new PointF(px, py);
+		var back = new PointF(px - vx * 14f, py - vy * 14f);
+		var perpX = -vy;
+		var perpY = vx;
+		var leftPt = new PointF(back.X + perpX * 7f, back.Y + perpY * 7f);
+		var rightPt = new PointF(back.X - perpX * 7f, back.Y - perpY * 7f);
+
+		var path = new PathF();
+		path.MoveTo(tip.X, tip.Y);
+		path.LineTo(leftPt.X, leftPt.Y);
+		path.LineTo(rightPt.X, rightPt.Y);
+		path.Close();
+
+		canvas.FillColor = color;
+		canvas.FillPath(path);
+		canvas.StrokeColor = Color.FromArgb("#0B0F14");
+		canvas.StrokeSize = 1;
+		canvas.DrawPath(path);
+
+		canvas.FontColor = color;
+		canvas.FontSize = 12;
+		canvas.DrawString(label, tip.X - 32, tip.Y - 22, 64, 18, HorizontalAlignment.Center, VerticalAlignment.Center);
+	}
+
 	private void DrawNavigationDebug(ICanvas canvas)
 	{
 		var nav = _host.Navigation;
@@ -85,7 +214,29 @@ public sealed class IsoDrawable : IDrawable
 		canvas.DrawString($"Mode: {nav.CurrentMode}", 8, 26, HorizontalAlignment.Left);
 		canvas.DrawString($"Navigator: {nav.ActiveNavigator}", 8, 42, HorizontalAlignment.Left);
 
-		var lineY = 58f;
+		var linksCount = _host.World.ModuleGraph.EnumerateUniqueLinksSnapshot().Count;
+		canvas.DrawString($"Links: {linksCount}  GraphVersion: {_host.World.ModuleGraph.Version}", 8, 58, HorizontalAlignment.Left);
+
+		var suitText = _host.World.Player.IsSuitEquipped ? "Suit: ON" : "Suit: OFF";
+		canvas.DrawString(suitText, 8, 74, HorizontalAlignment.Left);
+
+		var homeText = "Home: (none)";
+		for (var i = 0; i < _host.World.Modules.Count; i++)
+		{
+			if (_host.World.Modules[i].IsCommandModule)
+			{
+				homeText = $"Home: #{_host.World.Modules[i].ModuleId}";
+				break;
+			}
+		}
+		canvas.DrawString(homeText, 8, 90, HorizontalAlignment.Left);
+
+		var pendingText = nav.Pending.HasValue
+			? $"PendingInteract: {nav.Pending.Value.Kind} (Module #{nav.Pending.Value.ModuleId})"
+			: "PendingInteract: (none)";
+		canvas.DrawString(pendingText, 8, 106, HorizontalAlignment.Left);
+
+		var lineY = 122f;
 		var path = nav.CurrentPath;
 		if (path is not null && !string.IsNullOrWhiteSpace(path.DebugInfo))
 		{

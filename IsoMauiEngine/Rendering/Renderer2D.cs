@@ -47,7 +47,7 @@ public sealed class Renderer2D
 		switch (item.Kind)
 		{
 			case DrawKind.Entity:
-				DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z);
+				DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z, item.IsSuitEquipped);
 				break;
 			case DrawKind.FloorTile:
 					// Default ground tile is sprite-based (deck_plate_normal.png).
@@ -68,15 +68,21 @@ public sealed class Renderer2D
 			case DrawKind.DoorTile:
 				DrawIsoDoorTile(canvas, item.WorldPos, _camera, item.Height);
 				break;
-			case DrawKind.Marker:
-				DrawMarker(canvas, p, z);
-				break;
+				case DrawKind.Marker:
+					DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
+					break;
+				case DrawKind.RcsMarker:
+					DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
+					break;
+				case DrawKind.LockerMarker:
+					DrawMarker(canvas, p, z, Color.FromArgb("#B388FF"));
+					break;
 			default:
 				// Backward-compat fallback.
 				switch (item.Type)
 				{
 					case DrawItemType.Player:
-						DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z);
+						DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z, item.IsSuitEquipped);
 						break;
 					case DrawItemType.Tile:
 					default:
@@ -220,7 +226,7 @@ public sealed class Renderer2D
 		canvas.DrawPath(faceTop);
 	}
 
-	private static void DrawMarker(ICanvas canvas, Vector2 screenPos, float zoom)
+	private static void DrawMarker(ICanvas canvas, Vector2 screenPos, float zoom, Color color)
 	{
 		var w2 = (IsoMath.TileWidth * zoom) * 0.2f;
 		var h2 = (IsoMath.TileHeight * zoom) * 0.2f;
@@ -234,20 +240,20 @@ public sealed class Renderer2D
 		path.LineTo(x - w2, y);
 		path.Close();
 
-		canvas.FillColor = Color.FromArgb("#3DE0C4");
+		canvas.FillColor = color;
 		canvas.FillPath(path);
 		canvas.StrokeColor = Color.FromArgb("#0F141A");
 		canvas.StrokeSize = 1;
 		canvas.DrawPath(path);
 	}
 
-	private static void DrawPlayer(ICanvas canvas, Vector2 screenPos, Direction8 facing, int frame, bool isMoving, float zoom)
+	private static void DrawPlayer(ICanvas canvas, Vector2 screenPos, Direction8 facing, int frame, bool isMoving, float zoom, bool isSuitEquipped)
 	{
 		var x = (float)screenPos.X;
 		var y = (float)screenPos.Y;
 
 		// Prefer sprite sheets if available; fall back to placeholder.
-		if (TryDrawPlayerSprite(canvas, x, y, facing, frame, isMoving, zoom))
+		if (TryDrawPlayerSprite(canvas, x, y, facing, frame, isMoving, zoom, isSuitEquipped))
 		{
 			return;
 		}
@@ -283,19 +289,26 @@ public sealed class Renderer2D
 		canvas.DrawLine(x, y - headOffset, x + dir.X * lineLen, y - headOffset + dir.Y * lineLen);
 	}
 
-	private static bool TryDrawPlayerSprite(ICanvas canvas, float x, float y, Direction8 facing, int frame, bool isMoving, float zoom)
+	private static bool TryDrawPlayerSprite(ICanvas canvas, float x, float y, Direction8 facing, int frame, bool isMoving, float zoom, bool isSuitEquipped)
 	{
 		var walking = SpriteAssets.EngineerWalking;
+		var suit = SpriteAssets.SpacesuitDirections;
 
 		SpriteSheet? sheet = null;
 		int col = 0;
 		int row = 0;
 
-		// Walking sheet: 8 direction columns x 4 frame rows.
-		// Column order: N, NE, E, SE, S, SW, W, NW (matches Direction8 enum order).
-		// Row order: animation frames 0..3.
-		if (walking is not null)
+		// Spacesuit sheet: 8 direction columns x 1 row, no animation.
+		if (isSuitEquipped && suit is not null)
 		{
+			sheet = suit;
+			col = Math.Clamp((int)facing, 0, sheet.Columns - 1);
+			row = 0;
+		}
+		else if (walking is not null)
+		{
+			// Walking sheet: 8 direction columns x N frame rows.
+			// Column order: N, NE, E, SE, S, SW, W, NW (matches Direction8 enum order).
 			sheet = walking;
 			col = Math.Clamp((int)facing, 0, sheet.Columns - 1);
 			row = isMoving

@@ -109,8 +109,21 @@ public sealed class ModuleGridMap
 							IsMoving: false,
 							LayerBias: -0.01f,
 							Height: 0f,
-							Kind: DrawKind.Marker));
+							Kind: DrawKind.RcsMarker));
 						break;
+
+						case CellKind.Locker:
+							_cached.Add(new DrawItem(
+								Type: DrawItemType.Tile,
+								WorldPos: worldPos,
+								SortY: IsoMath.SortKey(worldPos),
+								Facing: Direction8.S,
+								Frame: 0,
+								IsMoving: false,
+								LayerBias: -0.0125f,
+								Height: 0f,
+							Kind: DrawKind.LockerMarker));
+							break;
 				}
 			}
 		}

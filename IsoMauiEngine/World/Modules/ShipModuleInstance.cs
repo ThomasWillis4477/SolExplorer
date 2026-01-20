@@ -39,6 +39,7 @@ public sealed class ShipModuleInstance
 
 	public bool IsDerelict { get; set; }
 	public bool IsAirlock { get; set; }
+	public bool IsCommandModule { get; set; }
 
 	public bool TryGetDoorSideAtWorldCell(int worldGridX, int worldGridY, out DoorSide side)
 	{
@@ -87,6 +88,26 @@ public sealed class ShipModuleInstance
 	{
 		var c = GetDoorWorldCell(side);
 		return IsoMath.GridToWorld(c.x, c.y) + WorldOffset;
+	}
+
+	public static Vector2 GetWorldStepForSide(DoorSide side)
+	{
+		var o = IsoMath.GridToWorld(0, 0);
+		var stepX = IsoMath.GridToWorld(1, 0) - o;
+		var stepY = IsoMath.GridToWorld(0, 1) - o;
+		return side switch
+		{
+			DoorSide.North => -stepY,
+			DoorSide.South => stepY,
+			DoorSide.East => stepX,
+			DoorSide.West => -stepX,
+			_ => stepX
+		};
+	}
+
+	public static float GetExpectedDoorSeamDistance(DoorSide sideA)
+	{
+		return GetWorldStepForSide(sideA).Length();
 	}
 
 	public Vector2 GetWorldCenter()
@@ -153,6 +174,14 @@ public sealed class ShipModuleInstance
 		if ((uint)rcsX < (uint)Width && (uint)rcsY < (uint)Height)
 		{
 			_cells[rcsX, rcsY] = new ModuleCell(CellKind.RcsControl, Walkable: true, Height: 0f);
+		}
+
+		// Locker marker.
+		var lockerX = (int)Blueprint.Locker.X;
+		var lockerY = (int)Blueprint.Locker.Y;
+		if ((uint)lockerX < (uint)Width && (uint)lockerY < (uint)Height)
+		{
+			_cells[lockerX, lockerY] = new ModuleCell(CellKind.Locker, Walkable: true, Height: 0f);
 		}
 	}
 }

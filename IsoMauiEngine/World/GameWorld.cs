@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using IsoMauiEngine.Engine;
 using IsoMauiEngine.Entities;
@@ -72,8 +73,15 @@ public sealed class GameWorld
 		{
 			_moduleMaps[i].AppendDrawItems(drawItems);
 		}
+
+		drawItems.Add(Player.CreateDrawItem());
+
 		for (var i = 0; i < _entities.Count; i++)
 		{
+			if (ReferenceEquals(_entities[i], Player))
+			{
+				continue;
+			}
 			_entities[i].EmitDrawItems(drawItems);
 		}
 	}
@@ -168,6 +176,7 @@ public sealed class GameWorld
 			var g = IsoMath.WorldToGrid(worldPos - m.WorldOffset);
 			var gx = (int)MathF.Round(g.X);
 			var gy = (int)MathF.Round(g.Y);
+
 			if (gx >= m.OriginX && gx < m.OriginX + m.Width && gy >= m.OriginY && gy < m.OriginY + m.Height)
 			{
 				module = m;
@@ -205,9 +214,10 @@ public sealed class GameWorld
 		// - Debris obstacles between clusters
 		// No rotation anywhere; placement uses WorldOffset only.
 
-		ShipModuleInstance AddModule(ModuleSizePreset preset, Vector2 worldOffset, bool isDerelict)
+		ShipModuleInstance AddModule(ModuleSizePreset preset, Vector2 worldOffset, bool isDerelict, Action<ModuleBlueprint>? configureBlueprint = null)
 		{
 			var bp = BlueprintLibrary.Get(preset);
+			configureBlueprint?.Invoke(bp);
 			var m = new ShipModuleInstance(bp, preset, originX: 0, originY: 0)
 			{
 				WorldOffset = worldOffset,
@@ -218,23 +228,70 @@ public sealed class GameWorld
 			return m;
 		}
 
-		void AlignAndLink(ShipModuleInstance a, DoorSide sideA, ShipModuleInstance b, DoorSide sideB, float maxAlignDistance)
+		static bool AreOpposite(DoorSide a, DoorSide b)
 		{
-			// Align B so its door matches A's door, then link the doors.
+			return (a == DoorSide.North && b == DoorSide.South)
+				|| (a == DoorSide.South && b == DoorSide.North)
+				|| (a == DoorSide.East && b == DoorSide.West)
+				|| (a == DoorSide.West && b == DoorSide.East);
+		}
+
+		static (float minX, float minY, float maxX, float maxY) GetWorldAabb(ShipModuleInstance m)
+		{
+			// Conservative world AABB from the 4 grid corners.
+			var tl = IsoMath.GridToWorld(m.OriginX, m.OriginY) + m.WorldOffset;
+			var tr = IsoMath.GridToWorld(m.OriginX + m.Width - 1, m.OriginY) + m.WorldOffset;
+			var br = IsoMath.GridToWorld(m.OriginX + m.Width - 1, m.OriginY + m.Height - 1) + m.WorldOffset;
+			var bl = IsoMath.GridToWorld(m.OriginX, m.OriginY + m.Height - 1) + m.WorldOffset;
+
+			var minX = MathF.Min(MathF.Min(tl.X, tr.X), MathF.Min(br.X, bl.X));
+			var maxX = MathF.Max(MathF.Max(tl.X, tr.X), MathF.Max(br.X, bl.X));
+			var minY = MathF.Min(MathF.Min(tl.Y, tr.Y), MathF.Min(br.Y, bl.Y));
+			var maxY = MathF.Max(MathF.Max(tl.Y, tr.Y), MathF.Max(br.Y, bl.Y));
+			return (minX, minY, maxX, maxY);
+		}
+
+		static bool AabbIntersects((float minX, float minY, float maxX, float maxY) a, (float minX, float minY, float maxX, float maxY) b)
+		{
+			return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+		}
+
+		void AlignAndPlaceForDoorLink(ShipModuleInstance a, DoorSide sideA, ShipModuleInstance b, DoorSide sideB, float maxAlignDistance)
+		{
+			// Doors must be adjacent, not coincident:
+			// doorB == doorA + seamStep, where seamStep is the outward one-cell step from module A.
+			if (!AreOpposite(sideA, sideB))
+			{
+				Debug.WriteLine($"[BuildScene] Refusing to align non-opposite doors: A#{a.ModuleId}.{sideA} <-> B#{b.ModuleId}.{sideB}");
+				return;
+			}
+
 			var aDoor = a.GetDoorWorldPos(sideA);
-			var bDoor = b.GetDoorWorldPos(sideB);
-			b.WorldOffset += (aDoor - bDoor);
+			var seamStep = ShipModuleInstance.GetWorldStepForSide(sideA);
+			var desiredBDoor = aDoor + seamStep;
+
+			var bDoorCell = b.GetDoorWorldCell(sideB);
+			b.WorldOffset = desiredBDoor - IsoMath.GridToWorld(bDoorCell.x, bDoorCell.y);
 
 			var bDoor2 = b.GetDoorWorldPos(sideB);
-			if (Vector2.Distance(aDoor, bDoor2) <= maxAlignDistance)
+			if (Vector2.Distance(desiredBDoor, bDoor2) <= maxAlignDistance)
 			{
 				ModuleGraph.TryLinkDoors(a.ModuleId, sideA, b.ModuleId, sideB);
+			}
+			else
+			{
+				Debug.WriteLine($"[BuildScene] Door align miss: A#{a.ModuleId}.{sideA} -> B#{b.ModuleId}.{sideB} dist={Vector2.Distance(desiredBDoor, bDoor2):F3}");
 			}
 		}
 
 		// --- Starter ship (near origin) ---
 		var starterOrigin = Vector2.Zero;
-		var starterCommand = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
+		var starterCommand = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false, configureBlueprint: bp =>
+		{
+			// Locker equipment tile inside the starter command module.
+			bp.Locker = new Vector2(3, 3);
+		});
+		starterCommand.IsCommandModule = true;
 		var starterCargo = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		starterAirlock.IsAirlock = true;
@@ -248,11 +305,11 @@ public sealed class GameWorld
 		// Cargo South <-> Generator North
 		// Cargo East <-> LifeSupport West
 		// Command West <-> Engine East (optional)
-		AlignAndLink(starterCommand, DoorSide.East, starterCargo, DoorSide.West, maxAlignDistance: 1f);
-		AlignAndLink(starterCommand, DoorSide.South, starterAirlock, DoorSide.North, maxAlignDistance: 1f);
-		AlignAndLink(starterCargo, DoorSide.South, starterGenerator, DoorSide.North, maxAlignDistance: 1f);
-		AlignAndLink(starterCargo, DoorSide.East, starterLifeSupport, DoorSide.West, maxAlignDistance: 1f);
-		AlignAndLink(starterCommand, DoorSide.West, starterEngine, DoorSide.East, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCommand, DoorSide.East, starterCargo, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCommand, DoorSide.South, starterAirlock, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCargo, DoorSide.South, starterGenerator, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCargo, DoorSide.East, starterLifeSupport, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCommand, DoorSide.West, starterEngine, DoorSide.East, maxAlignDistance: 1f);
 
 		// --- Wreck (far away) ---
 		var wreckBase = new Vector2(2600f, 1400f);
@@ -263,15 +320,29 @@ public sealed class GameWorld
 		var wreckEngine = AddModule(ModuleSizePreset.Medium, wreckBase, isDerelict: true);
 
 		// Partial linked cluster in the wreck.
-		AlignAndLink(wreckCommand, DoorSide.East, wreckCargo, DoorSide.West, maxAlignDistance: 1f);
-		AlignAndLink(wreckCargo, DoorSide.South, wreckGen, DoorSide.North, maxAlignDistance: 1f);
-		AlignAndLink(wreckCommand, DoorSide.West, wreckEngine, DoorSide.East, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(wreckCommand, DoorSide.East, wreckCargo, DoorSide.West, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(wreckCargo, DoorSide.South, wreckGen, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(wreckCommand, DoorSide.West, wreckEngine, DoorSide.East, maxAlignDistance: 1f);
 		// Leave wreckLife detached but nearby.
 		wreckLife.WorldOffset += new Vector2(220f, -120f);
 
 		// Additional detached wreck modules (free-floating nearby).
 		var wreckDetached1 = AddModule(ModuleSizePreset.Small, wreckBase + new Vector2(-260f, 180f), isDerelict: true);
 		var wreckDetached2 = AddModule(ModuleSizePreset.Medium, wreckBase + new Vector2(360f, 240f), isDerelict: true);
+
+		// Debug-time overlap check (world AABB approximation). Linked modules should touch at doors but not overlap.
+		for (var i = 0; i < _modules.Count; i++)
+		{
+			for (var j = i + 1; j < _modules.Count; j++)
+			{
+				var aabbA = GetWorldAabb(_modules[i]);
+				var aabbB = GetWorldAabb(_modules[j]);
+				if (AabbIntersects(aabbA, aabbB))
+				{
+					Debug.WriteLine($"[BuildScene] WARNING: module AABB overlap #{_modules[i].ModuleId} vs #{_modules[j].ModuleId}");
+				}
+			}
+		}
 
 		// --- Debris / space obstacles ---
 		SeedDebrisObstacles(
@@ -353,19 +424,18 @@ public sealed class GameWorld
 		{
 			var angle = (float)rng.NextDouble() * MathF.Tau;
 			var dist = 160f + (float)rng.NextDouble() * 620f;
-			var p = wreckCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * dist;
-			var radius = 16f + (float)rng.NextDouble() * 28f;
-			if (IsTooCloseToAnyModule(p, radius))
+			var p2 = wreckCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * dist;
+			var radius2 = 16f + (float)rng.NextDouble() * 28f;
+			if (IsTooCloseToAnyModule(p2, radius2))
 			{
 				continue;
 			}
-			_spaceObstacles.Add(new CircleObstacle(p, radius));
+			_spaceObstacles.Add(new CircleObstacle(p2, radius2));
 		}
 	}
 
 	private static float ApproxModuleRadius(ShipModuleInstance module)
 	{
-		// Cheap bound in world units. (No rotation.)
 		var maxDim = Math.Max(module.Width, module.Height);
 		return (MathF.Max(1, maxDim - 1) * (IsoMath.TileWidth / 4f)) + 70f;
 	}
@@ -386,7 +456,11 @@ public sealed class GameWorld
 
 			var pa = ma.GetDoorWorldPos(a.Side);
 			var pb = mb.GetDoorWorldPos(b.Side);
-			if (Vector2.Distance(pa, pb) > DoorLinkBreakDistance)
+			var d = Vector2.Distance(pa, pb);
+			var expected = ShipModuleInstance.GetExpectedDoorSeamDistance(a.Side);
+			// Links are valid when doors are adjacent across a seam (distance ~= one tile step).
+			// Break only when the deviation from expected seam distance is too large.
+			if (MathF.Abs(d - expected) > DoorLinkBreakDistance)
 			{
 				ModuleGraph.UnlinkDoor(a.ModuleId, a.Side);
 			}

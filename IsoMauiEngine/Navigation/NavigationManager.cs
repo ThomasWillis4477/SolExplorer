@@ -8,6 +8,8 @@ namespace IsoMauiEngine.Navigation;
 
 public sealed class NavigationManager
 {
+	private const float InteractionArrivalEpsilon = 6f;
+
 	private readonly GameWorld _world;
 	private readonly Camera2D _camera;
 	private readonly GridNavigator _grid;
@@ -18,6 +20,7 @@ public sealed class NavigationManager
 
 	private int _lastGraphVersion;
 	private NavRequest? _lastRequest;
+	private PendingInteraction? _pendingInteraction;
 
 	public NavigationManager(GameWorld world, Camera2D camera)
 	{
@@ -34,6 +37,9 @@ public sealed class NavigationManager
 	public MovementMode CurrentMode { get; private set; }
 	public string ActiveNavigator { get; private set; } = string.Empty;
 	public NavPath? CurrentPath => _world.RcsModeModule is not null ? _moduleMover.CurrentPath : _playerMover.CurrentPath;
+	public PendingInteraction? Pending => _pendingInteraction;
+
+	public event Action<InteractionMenuRequest>? InteractionMenuRequested;
 
 	public void Update(float dt)
 	{
@@ -44,7 +50,13 @@ public sealed class NavigationManager
 			RecomputeLast();
 		}
 
+		var hadPlayerPath = _playerMover.CurrentPath is not null;
 		_playerMover.Update(dt, _world.CanMoveToWorld);
+		var endedPlayerPath = hadPlayerPath && _playerMover.CurrentPath is null;
+		if (endedPlayerPath)
+		{
+			TryCompletePendingInteraction();
+		}
 		_moduleMover.Update(dt);
 
 		// Snap docking when module is moving.
@@ -59,26 +71,39 @@ public sealed class NavigationManager
 		}
 	}
 
+	public void CancelPendingInteraction()
+	{
+		_pendingInteraction = null;
+	}
+
+	public void SetRcsModeModule(ShipModuleInstance? module)
+	{
+		_world.RcsModeModule = module;
+		_moduleMover.SetActiveModule(module);
+		if (module is null)
+		{
+			_moduleMover.Stop();
+		}
+	}
+
 	public void HandleLeftClickScreen(Vector2 screenPos)
 	{
 		var targetWorld = _camera.ScreenToWorld(screenPos);
 
-		// Special: click an RCS control marker toggles RCS mode.
+		// If the click targets an interactive tile, use MoveThenInteract.
 		if (_world.TryFindContainingModule(targetWorld, out var clickedModule, out var clickedCell)
-			&& _world.TryGetCellKind(clickedModule, clickedCell, out var kind)
-			&& kind == CellKind.RcsControl)
+			&& _world.TryGetCellKind(clickedModule, clickedCell, out var clickedKind)
+			&& (clickedKind == CellKind.RcsControl || clickedKind == CellKind.Locker))
 		{
-			if (_world.RcsModeModule?.ModuleId == clickedModule.ModuleId)
-			{
-				_world.RcsModeModule = null;
-				_moduleMover.SetActiveModule(null);
-			}
-			else
-			{
-				_world.RcsModeModule = clickedModule;
-				_moduleMover.SetActiveModule(clickedModule);
-			}
-			return;
+			var tileWorld = IsoMath.GridToWorld(clickedCell.X, clickedCell.Y) + clickedModule.WorldOffset;
+			_pendingInteraction = new PendingInteraction(clickedKind, clickedModule.ModuleId, clickedCell, tileWorld);
+			// Route to the exact tile (even if the click was near it).
+			targetWorld = tileWorld;
+		}
+		else
+		{
+			// Any non-interaction click cancels the pending interaction.
+			_pendingInteraction = null;
 		}
 
 		ResolveMode(targetWorld);
@@ -204,4 +229,28 @@ public sealed class NavigationManager
 		var path = _grid.ComputePath(req);
 		_playerMover.SetPath(path);
 	}
+
+	private void TryCompletePendingInteraction()
+	{
+		if (!_pendingInteraction.HasValue)
+		{
+			return;
+		}
+
+		var pending = _pendingInteraction.Value;
+		var d2 = Vector2.DistanceSquared(_world.Player.WorldPos, pending.TargetWorld);
+		if (d2 > InteractionArrivalEpsilon * InteractionArrivalEpsilon)
+		{
+			// Movement ended but we didn't arrive close enough (blocked/cancelled).
+			_pendingInteraction = null;
+			return;
+		}
+
+		_pendingInteraction = null;
+		InteractionMenuRequested?.Invoke(new InteractionMenuRequest(pending.Kind, pending.ModuleId, pending.Cell, pending.TargetWorld));
+	}
 }
+
+public readonly record struct PendingInteraction(CellKind Kind, int ModuleId, AStarGrid.Cell Cell, Vector2 TargetWorld);
+
+public readonly record struct InteractionMenuRequest(CellKind Kind, int ModuleId, AStarGrid.Cell Cell, Vector2 TargetWorld);

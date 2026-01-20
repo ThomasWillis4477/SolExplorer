@@ -10,6 +10,7 @@ public static class SpriteAssets
 	private static bool AreAllReady => EngineerWalking is not null && DeckPlateNormal is not null;
 
 	public static SpriteSheet? EngineerWalking { get; private set; }
+	public static SpriteSheet? SpacesuitDirections { get; private set; }
 	public static Microsoft.Maui.Graphics.IImage? DeckPlateNormal { get; private set; }
 	public static Microsoft.Maui.Graphics.IImage? WorldBackground { get; private set; }
 
@@ -60,6 +61,23 @@ public static class SpriteAssets
 				RouteDebugLogger.Log("[Sprite] Failed to load EngineerWalking");
 			}
 
+			// Spacesuit directional sheet: 8 columns (directions) x 1 row.
+			if (SpacesuitDirections is null)
+			{
+				var suitImage = await TryLoadImageAsync(
+					"sprites/spacesuit_directions.png",
+					"spacesuit_directions.png").ConfigureAwait(false);
+				if (suitImage is not null)
+				{
+					SpacesuitDirections = new SpriteSheet(suitImage, columns: 8, rows: 1);
+					RouteDebugLogger.Log($"[Sprite] Loaded SpacesuitDirections {suitImage.Width}x{suitImage.Height}");
+				}
+				else
+				{
+					RouteDebugLogger.Log("[Sprite] Failed to load SpacesuitDirections");
+				}
+			}
+
 			// Default ground tile sprite.
 			// Note: package filename (Resources/Raw/sprites/deck_plate_normal.png).
 			var deckImage = await TryLoadImageAsync(
@@ -95,7 +113,7 @@ public static class SpriteAssets
 				}
 			}
 
-			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Deck={DeckPlateNormal is not null}, Bg={WorldBackground is not null})");
+			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Suit={SpacesuitDirections is not null}, Deck={DeckPlateNormal is not null}, Bg={WorldBackground is not null})");
 		}
 		finally
 		{

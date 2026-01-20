@@ -15,6 +15,8 @@ public enum DrawKind
 	DoorTile,
 	Entity,
 	Marker,
+	RcsMarker,
+	LockerMarker,
 }
 
 public readonly record struct DrawItem(
@@ -27,7 +29,8 @@ public readonly record struct DrawItem(
 	float HeightBias = 0f,
 	float LayerBias = 0f,
 	float Height = 0f,
-	DrawKind Kind = DrawKind.Entity
+	DrawKind Kind = DrawKind.Entity,
+	bool IsSuitEquipped = false
 )
 {
 	/// <summary>

@@ -34,8 +34,11 @@ public partial class MainPage : ContentPage
 		SpriteAssets.EnsureLoaded();
 		_host.Navigation.InteractionMenuRequested -= OnInteractionMenuRequested;
 		_host.Navigation.InteractionMenuRequested += OnInteractionMenuRequested;
+		_host.Navigation.RcsModeChanged -= OnRcsModeChanged;
+		_host.Navigation.RcsModeChanged += OnRcsModeChanged;
 		_host.Start(GameView);
 		TryHookKeyboard();
+		OnRcsModeChanged(_host.World.RcsModeModule is not null);
 	}
 
 	private void OnPointerPressed(object? sender, PointerEventArgs e)
@@ -60,8 +63,57 @@ public partial class MainPage : ContentPage
 			GameInputRouter.CurrentInput = null;
 		}
 		_host.Navigation.InteractionMenuRequested -= OnInteractionMenuRequested;
+		_host.Navigation.RcsModeChanged -= OnRcsModeChanged;
 		_host.Stop();
 		base.OnDisappearing();
+	}
+
+	private void OnRcsModeChanged(bool isActive)
+	{
+		RcsModeOverlay.IsVisible = isActive;
+		if (!isActive)
+		{
+			RcsModeSubtitle.Text = string.Empty;
+			return;
+		}
+
+		var moduleId = _host.World.RcsModeModule?.ModuleId;
+		RcsModeSubtitle.Text = moduleId.HasValue ? $"Controlling Module #{moduleId.Value}" : "Controlling module";
+	}
+
+	private void OnRcsStandUpClicked(object? sender, EventArgs e)
+	{
+		_host.Navigation.SetRcsModeModule(null);
+		RcsModeOverlay.IsVisible = false;
+	}
+
+	private void OnRcsDisconnectClicked(object? sender, EventArgs e)
+	{
+		var module = _host.World.RcsModeModule;
+		if (module is null)
+		{
+			RcsModeOverlay.IsVisible = false;
+			return;
+		}
+
+		var graph = _host.World.ModuleGraph;
+		var unlinkedAny = false;
+		foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
+		{
+			if (graph.TryGetLink(module.ModuleId, side, out _))
+			{
+				graph.UnlinkDoor(module.ModuleId, side);
+				unlinkedAny = true;
+			}
+		}
+
+		// Prevent immediate re-snap/relink when the module is still close to another door.
+		_host.Navigation.PauseSnapDockAfterDisconnect();
+
+		// Stay in RCS mode; this just detaches the module so it can be moved/re-docked.
+		RcsModeSubtitle.Text = unlinkedAny
+			? $"Disconnected. Controlling Module #{module.ModuleId}"
+			: $"No links. Controlling Module #{module.ModuleId}";
 	}
 
 	private void OnInteractionMenuRequested(InteractionMenuRequest request)

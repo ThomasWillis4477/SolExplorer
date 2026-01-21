@@ -46,6 +46,34 @@
                 </VerticalStackLayout>
             </Frame>
         </Grid>
+
+        <!-- RCS mode overlay (shown while module is being controlled; does NOT block clicks) -->
+        <Frame x:Name="RcsModeOverlay"
+               IsVisible="False"
+               HorizontalOptions="End"
+               VerticalOptions="Start"
+               Margin="12"
+               BackgroundColor="#1A222B"
+               BorderColor="#2F3D49"
+               CornerRadius="12"
+               Padding="12"
+               HasShadow="True">
+            <VerticalStackLayout Spacing="8">
+                <Label x:Name="RcsModeTitle"
+                       Text="RCS Mode"
+                       TextColor="White"
+                       FontSize="14"
+                       FontAttributes="Bold" />
+                <Label x:Name="RcsModeSubtitle"
+                       Text=""
+                       TextColor="#BFC0C0"
+                       FontSize="12" />
+                <Button Text="Stand up"
+                        Clicked="OnRcsStandUpClicked" />
+                <Button Text="Disconnect"
+                        Clicked="OnRcsDisconnectClicked" />
+            </VerticalStackLayout>
+        </Frame>
     </Grid>
 
 </ContentPage>

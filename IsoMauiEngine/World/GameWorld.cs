@@ -54,6 +54,16 @@ public sealed class GameWorld
 
 	public void Update(float dt, InputState input)
 	{
+		// If RCS mode is active, lock the player onto the RCS console tile of the active module
+		// so the player rides along as the module moves (WorldOffset changes).
+		if (RcsModeModule is not null)
+		{
+			var m = RcsModeModule;
+			var rcsWorld = GetRcsConsoleWorldPos(m);
+			Player.WorldPos = rcsWorld;
+			Player.SetMotion(Vector2.Zero, isMoving: false);
+		}
+
 		_linkValidationTimer += dt;
 		if (_linkValidationTimer >= LinkValidationIntervalSeconds)
 		{
@@ -65,6 +75,14 @@ public sealed class GameWorld
 		{
 			_entities[i].Update(dt, input);
 		}
+	}
+
+	private static Vector2 GetRcsConsoleWorldPos(ShipModuleInstance module)
+	{
+		var local = module.Blueprint.RcsControl;
+		var worldGridX = module.OriginX + (int)local.X;
+		var worldGridY = module.OriginY + (int)local.Y;
+		return IsoMath.GridToWorld(worldGridX, worldGridY) + module.WorldOffset;
 	}
 
 	public void AppendDrawItems(List<DrawItem> drawItems)
@@ -152,6 +170,27 @@ public sealed class GameWorld
 			// If we can't map it to a side, fall back to blueprint walkability.
 			return true;
 		}
+
+		// Door passability rules:
+		// - Airlocks: always passable (handled above)
+		// - If a module has zero linked doors, treat all its doors as passable ("floating" module)
+		// - Otherwise, only the linked doors are passable
+		var hasAnyLinkedDoor = false;
+		var sides = new[] { DoorSide.North, DoorSide.South, DoorSide.East, DoorSide.West };
+		for (var i = 0; i < sides.Length; i++)
+		{
+			if (ModuleGraph.TryGetLink(module.ModuleId, sides[i], out _))
+			{
+				hasAnyLinkedDoor = true;
+				break;
+			}
+		}
+
+		if (!hasAnyLinkedDoor)
+		{
+			return true;
+		}
+
 		return ModuleGraph.TryGetLink(module.ModuleId, side, out _);
 	}
 
@@ -286,16 +325,16 @@ public sealed class GameWorld
 
 		// --- Starter ship (near origin) ---
 		var starterOrigin = Vector2.Zero;
-		var starterCommand = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false, configureBlueprint: bp =>
+		var starterCommand = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		starterCommand.IsCommandModule = true;
+		var starterCargo = AddModule(ModuleSizePreset.Large, starterOrigin, isDerelict: false);
+		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false, configureBlueprint: bp =>
 		{
-			// Locker equipment tile inside the starter command module.
+			// Locker equipment tile inside the starter airlock module.
 			bp.Locker = new Vector2(3, 3);
 		});
-		starterCommand.IsCommandModule = true;
-		var starterCargo = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
-		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		starterAirlock.IsAirlock = true;
-		var starterGenerator = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
+		var starterGenerator = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 		var starterLifeSupport = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		var starterEngine = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 
@@ -305,11 +344,11 @@ public sealed class GameWorld
 		// Cargo South <-> Generator North
 		// Cargo East <-> LifeSupport West
 		// Command West <-> Engine East (optional)
-		AlignAndPlaceForDoorLink(starterCommand, DoorSide.East, starterCargo, DoorSide.West, maxAlignDistance: 1f);
-		AlignAndPlaceForDoorLink(starterCommand, DoorSide.South, starterAirlock, DoorSide.North, maxAlignDistance: 1f);
-		AlignAndPlaceForDoorLink(starterCargo, DoorSide.South, starterGenerator, DoorSide.North, maxAlignDistance: 1f);
-		AlignAndPlaceForDoorLink(starterCargo, DoorSide.East, starterLifeSupport, DoorSide.West, maxAlignDistance: 1f);
-		AlignAndPlaceForDoorLink(starterCommand, DoorSide.West, starterEngine, DoorSide.East, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCommand, DoorSide.West, starterCargo, DoorSide.East, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCargo, DoorSide.South, starterAirlock, DoorSide.North, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCargo, DoorSide.North, starterLifeSupport, DoorSide.South, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterCargo, DoorSide.West, starterGenerator, DoorSide.East, maxAlignDistance: 1f);
+		AlignAndPlaceForDoorLink(starterGenerator, DoorSide.West, starterEngine, DoorSide.East, maxAlignDistance: 1f);
 
 		// --- Wreck (far away) ---
 		var wreckBase = new Vector2(2600f, 1400f);
@@ -327,8 +366,8 @@ public sealed class GameWorld
 		wreckLife.WorldOffset += new Vector2(220f, -120f);
 
 		// Additional detached wreck modules (free-floating nearby).
-		var wreckDetached1 = AddModule(ModuleSizePreset.Small, wreckBase + new Vector2(-260f, 180f), isDerelict: true);
-		var wreckDetached2 = AddModule(ModuleSizePreset.Medium, wreckBase + new Vector2(360f, 240f), isDerelict: true);
+		//var wreckDetached1 = AddModule(ModuleSizePreset.Small, wreckBase + new Vector2(-260f, 180f), isDerelict: true);
+		//var wreckDetached2 = AddModule(ModuleSizePreset.Medium, wreckBase + new Vector2(360f, 240f), isDerelict: true);
 
 		// Debug-time overlap check (world AABB approximation). Linked modules should touch at doors but not overlap.
 		for (var i = 0; i < _modules.Count; i++)
@@ -350,9 +389,9 @@ public sealed class GameWorld
 			wreckCenter: wreckCommand.GetWorldCenter());
 
 		// Treat detached derelict modules as EVA obstacles (keeps detours interesting).
-		AddModuleAsObstacleIfDetached(wreckLife);
-		AddModuleAsObstacleIfDetached(wreckDetached1);
-		AddModuleAsObstacleIfDetached(wreckDetached2);
+		//AddModuleAsObstacleIfDetached(wreckLife);
+		//AddModuleAsObstacleIfDetached(wreckDetached1);
+		//AddModuleAsObstacleIfDetached(wreckDetached2);
 	}
 
 	private void AddModuleAsObstacleIfDetached(ShipModuleInstance module)

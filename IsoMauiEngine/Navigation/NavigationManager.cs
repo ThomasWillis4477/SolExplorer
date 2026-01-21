@@ -9,6 +9,7 @@ namespace IsoMauiEngine.Navigation;
 public sealed class NavigationManager
 {
 	private const float InteractionArrivalEpsilon = 6f;
+	private const float SnapDockCooldownSeconds = 5f;
 
 	private readonly GameWorld _world;
 	private readonly Camera2D _camera;
@@ -17,6 +18,7 @@ public sealed class NavigationManager
 	private readonly ModuleNavigator _moduleNav;
 	private readonly PlayerMover _playerMover;
 	private readonly ModuleMover _moduleMover;
+	private float _snapDockCooldown;
 
 	private int _lastGraphVersion;
 	private NavRequest? _lastRequest;
@@ -40,9 +42,15 @@ public sealed class NavigationManager
 	public PendingInteraction? Pending => _pendingInteraction;
 
 	public event Action<InteractionMenuRequest>? InteractionMenuRequested;
+	public event Action<bool>? RcsModeChanged;
 
 	public void Update(float dt)
 	{
+		if (_snapDockCooldown > 0f)
+		{
+			_snapDockCooldown = MathF.Max(0f, _snapDockCooldown - dt);
+		}
+
 		// Recompute if graph changed and we have an active grid path.
 		if (_lastRequest.HasValue && _world.ModuleGraph.Version != _lastGraphVersion)
 		{
@@ -63,12 +71,17 @@ public sealed class NavigationManager
 		var active = _world.RcsModeModule;
 		if (active is not null && _moduleMover.CurrentPath is not null)
 		{
-			if (_moduleNav.TrySnapDock(active))
+			if (_snapDockCooldown <= 0f && _moduleNav.TrySnapDock(active))
 			{
 				_moduleMover.Stop();
 				_lastGraphVersion = _world.ModuleGraph.Version;
 			}
 		}
+	}
+
+	public void PauseSnapDockAfterDisconnect()
+	{
+		_snapDockCooldown = SnapDockCooldownSeconds;
 	}
 
 	public void CancelPendingInteraction()
@@ -80,10 +93,17 @@ public sealed class NavigationManager
 	{
 		_world.RcsModeModule = module;
 		_moduleMover.SetActiveModule(module);
+		if (module is not null)
+		{
+			// Entering RCS mode locks player movement to the console position.
+			_playerMover.Stop();
+			_pendingInteraction = null;
+		}
 		if (module is null)
 		{
 			_moduleMover.Stop();
 		}
+		RcsModeChanged?.Invoke(module is not null);
 	}
 
 	public void HandleLeftClickScreen(Vector2 screenPos)
@@ -158,7 +178,18 @@ public sealed class NavigationManager
 				return;
 			}
 			var doorPos = toDoor.Waypoints[0];
-			var spaceReq = new NavRequest(RequesterType.Player, startWorld, doorPos);
+
+			// Important: approach from *space* to a point just outside the door, then step through
+			// the door tile (first grid waypoint). Otherwise, a straight-line space path can attempt
+			// to enter the module on a non-door cell and be blocked.
+			var approachPos = doorPos;
+			if (_world.TryFindContainingModule(doorPos, out var doorModule, out var doorCell)
+				&& doorModule.TryGetDoorSideAtWorldCell(doorCell.X, doorCell.Y, out var doorSide))
+			{
+				approachPos = doorModule.GetDoorWorldPos(doorSide) + ShipModuleInstance.GetWorldStepForSide(doorSide);
+			}
+
+			var spaceReq = new NavRequest(RequesterType.Player, startWorld, approachPos);
 			var space = _space.ComputePath(spaceReq);
 			var combined = CombinePaths(space, toDoor, debug: "Space+Grid");
 			_lastRequest = new NavRequest(RequesterType.Player, startWorld, targetWorld);

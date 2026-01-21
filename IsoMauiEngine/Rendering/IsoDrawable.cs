@@ -83,11 +83,13 @@ public sealed class IsoDrawable : IDrawable
 	private void DrawEvaHudIndicators(ICanvas canvas, RectF viewport)
 	{
 		// Suit-gated EVA indicators.
-		if (!_host.World.Player.IsSuitEquipped)
+		// Also show while RCS mode is active (player is "seated"/locked to console inside a module).
+		var rcsActive = _host.World.RcsModeModule is not null;
+		if (!_host.World.Player.IsSuitEquipped && !rcsActive)
 		{
 			return;
 		}
-		if (_host.World.TryFindContainingModule(_host.World.Player.WorldPos, out _, out _))
+		if (!rcsActive && _host.World.TryFindContainingModule(_host.World.Player.WorldPos, out _, out _))
 		{
 			return;
 		}
@@ -129,15 +131,17 @@ public sealed class IsoDrawable : IDrawable
 		// HOME indicator (single, distinct).
 		if (home is not null)
 		{
+			var dist = Vector2.Distance(playerWorld, home.GetWorldCenter());
 			DrawEdgeArrow(canvas, playerScreen, _host.Camera.WorldToScreen(home.GetWorldCenter()), left, right, top, bottom,
-				color: Color.FromArgb("#06D6A0"), label: "HOME");
+				color: Color.FromArgb("#06D6A0"), label: $"HOME {dist:0}");
 		}
 
 		for (var i = 0; i < max; i++)
 		{
 			var m = candidates[i].m;
+			var dist = Vector2.Distance(playerWorld, m.GetWorldCenter());
 			DrawEdgeArrow(canvas, playerScreen, _host.Camera.WorldToScreen(m.GetWorldCenter()), left, right, top, bottom,
-				color: Color.FromArgb("#FFD166"), label: $"#{m.ModuleId}");
+				color: Color.FromArgb("#FFD166"), label: $"#{m.ModuleId} {dist:0}");
 		}
 	}
 
@@ -203,7 +207,7 @@ public sealed class IsoDrawable : IDrawable
 
 		canvas.FontColor = color;
 		canvas.FontSize = 12;
-		canvas.DrawString(label, tip.X - 32, tip.Y - 22, 64, 18, HorizontalAlignment.Center, VerticalAlignment.Center);
+		canvas.DrawString(label, tip.X - 48, tip.Y - 22, 96, 18, HorizontalAlignment.Center, VerticalAlignment.Center);
 	}
 
 	private void DrawNavigationDebug(ICanvas canvas)
@@ -356,13 +360,31 @@ public sealed class IsoDrawable : IDrawable
 
 			// Door positions (color by link state).
 			canvas.StrokeSize = 2;
+			var hasAnyLinkedDoor = false;
+			foreach (DoorSide probeSide in Enum.GetValues(typeof(DoorSide)))
+			{
+				if (graph.TryGetLink(module.ModuleId, probeSide, out _))
+				{
+					hasAnyLinkedDoor = true;
+					break;
+				}
+			}
+
 			foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
 			{
 				var linked = graph.TryGetLink(module.ModuleId, side, out _);
-				// Linked = docked door (green). Airlock doors are walkable even when unlinked (blue).
-				canvas.StrokeColor = linked
-					? Color.FromArgb("#06D6A0")
-					: (module.IsAirlock ? Color.FromArgb("#4D96FF") : Colors.Orange);
+				var passable = module.IsAirlock || !hasAnyLinkedDoor || linked;
+
+				// Colors represent passability (not just link state):
+				// - Linked passable door: green
+				// - Airlock unlinked but passable: blue
+				// - Floating module (no links) passable doors: amber
+				// - Connected module unlinked blocked doors: red
+				canvas.StrokeColor = passable
+					? (linked
+						? Color.FromArgb("#06D6A0")
+						: (module.IsAirlock ? Color.FromArgb("#4D96FF") : Color.FromArgb("#FFD166")))
+					: Color.FromArgb("#EF476F");
 				var p = _host.Camera.WorldToScreen(module.GetDoorWorldPos(side));
 				canvas.DrawCircle(p.X, p.Y, 6 * _host.Camera.Zoom);
 			}

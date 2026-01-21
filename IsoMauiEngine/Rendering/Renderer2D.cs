@@ -250,10 +250,11 @@ public sealed class Renderer2D
 	private static void DrawPlayer(ICanvas canvas, Vector2 screenPos, Direction8 facing, int frame, bool isMoving, float zoom, bool isSuitEquipped)
 	{
 		var x = (float)screenPos.X;
-		var y = (float)screenPos.Y;
+		// World positions are tile centers; anchor sprites by their feet at the *bottom* point of the tile.
+		var feetY = (float)screenPos.Y + (IsoMath.TileHeight * zoom) * 0.5f;
 
 		// Prefer sprite sheets if available; fall back to placeholder.
-		if (TryDrawPlayerSprite(canvas, x, y, facing, frame, isMoving, zoom, isSuitEquipped))
+		if (TryDrawPlayerSprite(canvas, x, feetY, facing, frame, isMoving, zoom, isSuitEquipped))
 		{
 			return;
 		}
@@ -263,10 +264,10 @@ public sealed class Renderer2D
 		var bodyW = 20f * zoom;
 		var bodyH = 24f * zoom;
 		var radius = 6f * zoom;
-		canvas.FillRoundedRectangle(x - bodyW * 0.5f, y - bodyH, bodyW, bodyH, radius);
+		canvas.FillRoundedRectangle(x - bodyW * 0.5f, feetY - bodyH, bodyW, bodyH, radius);
 		canvas.StrokeColor = Colors.Black;
 		canvas.StrokeSize = 1;
-		canvas.DrawRoundedRectangle(x - bodyW * 0.5f, y - bodyH, bodyW, bodyH, radius);
+		canvas.DrawRoundedRectangle(x - bodyW * 0.5f, feetY - bodyH, bodyW, bodyH, radius);
 
 		// Facing indicator
 		var dir = facing switch
@@ -286,7 +287,7 @@ public sealed class Renderer2D
 		canvas.StrokeSize = 2;
 		var headOffset = 20f * zoom;
 		var lineLen = 10f * zoom;
-		canvas.DrawLine(x, y - headOffset, x + dir.X * lineLen, y - headOffset + dir.Y * lineLen);
+		canvas.DrawLine(x, feetY - headOffset, x + dir.X * lineLen, feetY - headOffset + dir.Y * lineLen);
 	}
 
 	private static bool TryDrawPlayerSprite(ICanvas canvas, float x, float y, Direction8 facing, int frame, bool isMoving, float zoom, bool isSuitEquipped)

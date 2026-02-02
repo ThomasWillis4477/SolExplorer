@@ -49,6 +49,21 @@ public sealed class Renderer2D
 			case DrawKind.Entity:
 				DrawPlayer(canvas, p, item.Facing, item.Frame, item.IsMoving, z, item.IsSuitEquipped);
 				break;
+			case DrawKind.RcsConsolePlayer:
+				var playerConsole = item.Frame switch
+				{
+					2 => SpriteAssets.RcsConsole2,
+					_ => SpriteAssets.RcsConsole1,
+				} ?? SpriteAssets.RcsConsole0;
+				if (playerConsole is not null)
+				{
+					DrawPropSpriteOnTile(canvas, p, playerConsole, z, IsoMath.TileWidth, IsoMath.TileHeight);
+				}
+				else
+				{
+					DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
+				}
+				break;
 			case DrawKind.FloorTile:
 					// Default ground tile is sprite-based (deck_plate_normal.png).
 					// Keep DrawIsoTile as a fallback/debug renderer if the sprite is missing.
@@ -63,19 +78,59 @@ public sealed class Renderer2D
 					}
 				break;
 			case DrawKind.WallTile:
-				DrawIsoWallTile(canvas, item.WorldPos, _camera, item.Height);
+				var wallSprite = SpriteAssets.Wall0;
+				if (wallSprite is not null && MathF.Abs(item.Height - 1f) <= 0.01f)
+				{
+					DrawPropSpriteOnTile(canvas, p, wallSprite, z, IsoMath.TileWidth, IsoMath.TileHeight);
+				}
+				else
+				{
+					DrawIsoWallTile(canvas, item.WorldPos, _camera, item.Height);
+				}
 				break;
 			case DrawKind.DoorTile:
-				DrawIsoDoorTile(canvas, item.WorldPos, _camera, item.Height);
+					var doorSprite = item.Frame switch
+					{
+						0 => SpriteAssets.Door0,
+						1 => SpriteAssets.Door1,
+						2 => SpriteAssets.Door2,
+						3 => SpriteAssets.Door3,
+						_ => null
+					};
+
+					if (doorSprite is not null)
+					{
+						DrawPropSpriteOnTile(canvas, p, doorSprite, z, IsoMath.TileWidth, IsoMath.TileHeight);
+					}
+					else
+					{
+						DrawIsoDoorTile(canvas, item.WorldPos, _camera, item.Height);
+					}
 				break;
 				case DrawKind.Marker:
 					DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
 					break;
 				case DrawKind.RcsMarker:
-					DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
+					var rcsSprite = SpriteAssets.RcsConsole0;
+					if (rcsSprite is not null)
+					{
+						DrawPropSpriteOnTile(canvas, p, rcsSprite, z, IsoMath.TileWidth, IsoMath.TileHeight);
+					}
+					else
+					{
+						DrawMarker(canvas, p, z, Color.FromArgb("#3DE0C4"));
+					}
 					break;
 				case DrawKind.LockerMarker:
-					DrawMarker(canvas, p, z, Color.FromArgb("#B388FF"));
+					var lockerSprite = item.Frame == 1 ? SpriteAssets.LockerWithSuit : SpriteAssets.LockerEmpty;
+					if (lockerSprite is not null)
+					{
+						DrawPropSpriteOnTile(canvas, p, lockerSprite, z, IsoMath.TileWidth, IsoMath.TileHeight);
+					}
+					else
+					{
+						DrawMarker(canvas, p, z, Color.FromArgb("#B388FF"));
+					}
 					break;
 			default:
 				// Backward-compat fallback.
@@ -91,6 +146,31 @@ public sealed class Renderer2D
 				}
 				break;
 		}
+	}
+
+	private static void DrawPropSpriteOnTile(
+		ICanvas canvas,
+		Vector2 screenCenter,
+		Microsoft.Maui.Graphics.IImage image,
+		float zoom,
+		float tileW,
+		float tileH)
+	{
+		// Sprites in Resources/Raw/sprites are authored at arbitrary pixel sizes.
+		// For props (like lockers), scale uniformly so their footprint width matches the iso tile width.
+		var w = tileW * zoom;
+		var imgW = MathF.Max(1f, image.Width);
+		var imgH = MathF.Max(1f, image.Height);
+		var scale = w / imgW;
+		var drawW = w;
+		var drawH = imgH * scale;
+
+		// Anchor props to the bottom point of the isometric tile (diamond bottom vertex)
+		// so tall sprites don't float and appear positioned correctly on the floor.
+		var x = screenCenter.X - drawW * 0.5f;
+		var tileBottomY = screenCenter.Y + (tileH * zoom * 0.5f);
+		var y = tileBottomY - drawH;
+		canvas.DrawImage(image, x, y, drawW, drawH);
 	}
 
 	private static void DrawGroundTileSprite(

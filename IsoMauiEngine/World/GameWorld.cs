@@ -11,6 +11,11 @@ namespace IsoMauiEngine.World;
 
 public sealed class GameWorld
 {
+	private readonly record struct AabbF(float MinX, float MinY, float MaxX, float MaxY)
+	{
+		public AabbF Offset(float dx, float dy) => new(MinX + dx, MinY + dy, MaxX + dx, MaxY + dy);
+	}
+
 	private const float DoorLinkBreakDistance = 28f;
 	private const float LinkValidationIntervalSeconds = 0.25f;
 	private float _linkValidationTimer;
@@ -51,6 +56,120 @@ public sealed class GameWorld
 	public Player Player { get; }
 
 	public Func<Vector2, bool> CanMoveToWorld => CanPlayerMoveToWorld;
+
+	public Vector2 ResolveModuleMovementStep(ShipModuleInstance moving, Vector2 desiredStepWorld)
+	{
+		if (desiredStepWorld.LengthSquared() < 1e-10f)
+		{
+			return desiredStepWorld;
+		}
+
+	// Resolve collisions in grid-space (clean AABB slide) then convert back to world-space.
+		var currentGridOff = IsoMath.WorldToGrid(moving.WorldOffset);
+		var desiredStepGrid = IsoMath.WorldToGrid(desiredStepWorld);
+
+		const float pad = 0.01f;
+		bool RangesOverlap(float aMin, float aMax, float bMin, float bMax)
+			=> aMin < bMax - pad && aMax > bMin + pad;
+
+		static AabbF ComputeGridAabb(ShipModuleInstance module, Vector2 gridOff)
+		{
+			var minX = module.OriginX + gridOff.X;
+			var minY = module.OriginY + gridOff.Y;
+			return new AabbF(minX, minY, minX + module.Width, minY + module.Height);
+		}
+
+		var movingBox = ComputeGridAabb(moving, currentGridOff);
+
+		static bool IsAheadInPositive(float movingMax, float otherMin) => movingMax <= otherMin;
+		static bool IsAheadInNegative(float movingMin, float otherMax) => movingMin >= otherMax;
+
+		// X axis: clamp dx so we do not overlap other modules.
+		var dx = desiredStepGrid.X;
+		if (MathF.Abs(dx) > 1e-8f)
+		{
+			var clampedDx = dx;
+			for (var i = 0; i < _modules.Count; i++)
+			{
+				var other = _modules[i];
+				if (ReferenceEquals(other, moving))
+				{
+					continue;
+				}
+				var otherBox = ComputeGridAabb(other, IsoMath.WorldToGrid(other.WorldOffset));
+				if (!RangesOverlap(movingBox.MinY, movingBox.MaxY, otherBox.MinY, otherBox.MaxY))
+				{
+					continue;
+				}
+
+				if (dx > 0f)
+				{
+					// Only constrain against obstacles in front in +X direction.
+					if (!IsAheadInPositive(movingBox.MaxX, otherBox.MinX))
+					{
+						continue;
+					}
+					var gap = otherBox.MinX - movingBox.MaxX;
+					clampedDx = MathF.Min(clampedDx, MathF.Max(0f, gap - pad));
+				}
+				else
+				{
+					// Only constrain against obstacles in front in -X direction.
+					if (!IsAheadInNegative(movingBox.MinX, otherBox.MaxX))
+					{
+						continue;
+					}
+					var gap = movingBox.MinX - otherBox.MaxX;
+					clampedDx = MathF.Max(clampedDx, MathF.Min(0f, -(gap - pad)));
+				}
+			}
+			dx = clampedDx;
+			movingBox = movingBox.Offset(dx, 0f);
+		}
+
+		// Y axis: clamp dy after applying X for natural sliding.
+		var dy = desiredStepGrid.Y;
+		if (MathF.Abs(dy) > 1e-8f)
+		{
+			var clampedDy = dy;
+			for (var i = 0; i < _modules.Count; i++)
+			{
+				var other = _modules[i];
+				if (ReferenceEquals(other, moving))
+				{
+					continue;
+				}
+				var otherBox = ComputeGridAabb(other, IsoMath.WorldToGrid(other.WorldOffset));
+				if (!RangesOverlap(movingBox.MinX, movingBox.MaxX, otherBox.MinX, otherBox.MaxX))
+				{
+					continue;
+				}
+
+				if (dy > 0f)
+				{
+					if (!IsAheadInPositive(movingBox.MaxY, otherBox.MinY))
+					{
+						continue;
+					}
+					var gap = otherBox.MinY - movingBox.MaxY;
+					clampedDy = MathF.Min(clampedDy, MathF.Max(0f, gap - pad));
+				}
+				else
+				{
+					if (!IsAheadInNegative(movingBox.MinY, otherBox.MaxY))
+					{
+						continue;
+					}
+					var gap = movingBox.MinY - otherBox.MaxY;
+					clampedDy = MathF.Max(clampedDy, MathF.Min(0f, -(gap - pad)));
+				}
+			}
+			dy = clampedDy;
+		}
+
+		var clampedStepGrid = new Vector2(dx, dy);
+		return IsoMath.GridToWorld(clampedStepGrid);
+	}
 
 	public void Update(float dt, InputState input)
 	{
@@ -331,9 +450,10 @@ public sealed class GameWorld
 		var starterAirlock = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false, configureBlueprint: bp =>
 		{
 			// Locker equipment tile inside the starter airlock module.
-			bp.Locker = new Vector2(3, 3);
+			bp.Locker = new Vector2(2, 1);
 		});
 		starterAirlock.IsAirlock = true;
+		starterAirlock.LockerHasSuit = true;
 		var starterGenerator = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);
 		var starterLifeSupport = AddModule(ModuleSizePreset.Small, starterOrigin, isDerelict: false);
 		var starterEngine = AddModule(ModuleSizePreset.Medium, starterOrigin, isDerelict: false);

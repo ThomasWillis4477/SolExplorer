@@ -1,0 +1,131 @@
+Context
+In SolExplorer demo scene generation (GameWorld.BuildScene), starter ship modules are placed such that connected module edges visually blend together. This is incorrect: each module must retain its own wall/door ring, with linked doors aligned and facing each other. Modules should be adjacent (touching) but NOT overlapping tiles or sharing the same wall tiles. Door links are N/E/S/W only (no rotation).
+
+Goals
+1) Fix module placement so linked modules do not overlap. Their outer wall rings remain separate but touching.
+2) Ensure linked doors are aligned facing each other to allow passage (grid hop already handles traversal).
+3) Do NOT remove/cull walls/doors when linked; only placement changes are needed unless we find an explicit “cull seam” rule.
+
+Tasks
+A) Add world-space helpers for door alignment
+1) In ShipModuleInstance (or ModuleGridMap) add a method:
+   - Vector2 GetDoorWorldPos(DoorSide side)  // center of the door cell in world space
+2) Add a method to get the world-space “one cell step” for a given DoorSide:
+   - Vector2 GetWorldStepForSide(DoorSide side)
+   This must be derived from the same isometric transform used for tiles:
+   Example:
+     - If a grid cell (x,y) maps to world using your iso transform, then:
+       stepX = WorldPos(x+1,y) - WorldPos(x,y)
+       stepY = WorldPos(x,y+1) - WorldPos(x,y)
+     - Then for sides:
+       North: -stepY
+       South: +stepY
+       East:  +stepX
+       West:  -stepX
+   Use whatever your engine’s canonical cell-to-world function is (do NOT hardcode magic numbers).
+
+B) Create a robust door-to-door alignment function (no overlap)
+1) In GameWorld (or a WorldBuilder helper), implement:
+   AlignAndPlaceForDoorLink(moduleA, sideA, moduleB, sideB)
+   that sets moduleB.WorldOffset so that:
+     moduleB.GetDoorWorldPos(sideB) == moduleA.GetDoorWorldPos(sideA) + seamStep
+   where seamStep is the outward step from moduleA across the seam:
+     seamStep = moduleA.GetWorldStepForSide(sideA)
+   Additionally assert that sideA and sideB are opposites (E<->W, N<->S) or return false.
+
+2) IMPORTANT: We want doors adjacent, not coincident.
+   - If current code aligns door positions equal, replace it with the above seamStep approach.
+
+C) Apply alignment in BuildScene for starter ship placement
+1) In BuildScene, for each starter ship link you establish (e.g. Command East <-> Cargo West):
+   - Create modules with temporary offsets
+   - Call AlignAndPlaceForDoorLink(command, East, cargo, West)
+   - Then call ModuleGraph.TryLinkDoors(command, East, cargo, West)
+2) Repeat for the other connected modules (airlock, generator, life support, etc.)
+3) After placement, verify no footprint overlap:
+   - Add a simple debug-time check:
+     - if moduleA.Bounds.Intersects(moduleB.Bounds) => log warning
+   (Bounds should represent the module footprint including walls.)
+
+D) Confirm no “seam culling” exists
+1) Search for any logic that changes wall/door tiles when links exist, e.g.:
+   - “if linked door then set wall to floor”
+   - “carve corridor”
+   If found, remove/disable it. Linked doors should remain as door tiles in BOTH modules.
+
+Verification
+1) Run demo scene. Starter ship modules should appear as separate framed rooms touching at seams (no blended wall textures).
+2) Doorways should line up facing each other at the seam.
+3) Player pathing across modules still works (GridNav hops).
+4) Turn on F1 overlay and confirm door markers appear as paired facing doors, not a single shared door tile.
+5) No Bounds.Intersects warnings between linked modules.
+
+Acceptance Criteria
+- No visible tile overlap between linked modules.
+- Each module retains its own wall ring and door tiles.
+- Linked doors are aligned adjacent, facing.
+- No rotation introduced.
+
+Notes
+Keep this change localized to placement/alignment math. Do not refactor nav logic.
+GridNavigator must continue to use ModuleGraph door links as the sole authority for inter-module traversal. Door world adjacency must not be auto-inferred for pathfinding.
+
+---------------------------------------------------------------------------
+
+Context
+We changed module placement so linked modules are adjacent (touching) but NOT overlapping. Linked doors are now two separate door tiles facing each other across a seam, so DoorA.WorldPos is NOT equal to DoorB.WorldPos anymore. They are separated by approximately one tile world-step (the seam distance).
+After this change, GridNav reports "no module route" and all non-airlock doors are locked/unwalkable. This indicates ModuleGraph links are not being created or are being auto-broken by distance validation that still assumes door world positions coincide (distance ~ 0).
+
+Goals
+1) Make door links seam-aware: linked doors are valid when separated by the expected seam distance (one tile step), not zero.
+2) Ensure ModuleGraph retains valid edges so GridNavigator can compute module routes.
+3) Preserve existing rule: non-linked doors are unwalkable except airlock doors (airlock doors always walkable).
+4) Keep no-rotation constraint (links only N<->S and E<->W).
+
+Tasks
+A) Define expected seam distance
+1) Add helper to compute the expected world-space seam distance between opposite doors:
+   - float GetExpectedDoorSeamDistance(DoorSide sideA)
+   This should be based on your canonical iso cell-to-world transform:
+   - stepX = WorldPos(cellX+1, cellY) - WorldPos(cellX, cellY)
+   - stepY = WorldPos(cellX, cellY+1) - WorldPos(cellX, cellY)
+   For DoorSide:
+   - East/West uses |stepX| magnitude
+   - North/South uses |stepY| magnitude
+   Expected seam distance should be the magnitude of the outward step from sideA (one cell step).
+
+B) Fix link creation to NOT require coincident door world positions
+1) In ModuleGraph.TryLinkDoors (or wherever door links are created), remove any check that requires:
+   distance(DoorA.WorldPos, DoorB.WorldPos) < epsilon
+2) If you want validation at link time, validate against expected seam distance instead:
+   abs(distance - expectedSeamDistance) <= tolerance
+   Use a tolerance like 10%-20% of seam distance or a small absolute tolerance.
+
+C) Fix auto-unlink validation to accept seam distance
+1) In GameWorld.ValidateDoorLinks() (or equivalent link validator):
+   - currently it likely unlinks if distance > DoorLinkBreakDistance OR distance not ~0.
+   Update it to:
+   - compute expectedSeamDistance based on the door side
+   - unlink only if abs(distance - expectedSeamDistance) > DoorLinkBreakDistance
+   Keep the existing checks for sealed/damaged doors if present.
+
+D) Optional but recommended debug additions
+1) In F1 overlay, add:
+   - "Links: <count>" (total module graph edges)
+   - optionally "GraphVersion: <version>"
+   This will instantly confirm whether links exist when debugging.
+(Do NOT add a "debug on/off" label; only add these diagnostics.)
+
+Verification
+1) Run demo, press F1:
+   - GridNav should no longer say "no module route" when clicking into connected modules.
+   - Doors on linked sides should be walkable and produce valid module hops.
+2) Move a module slightly with RCS:
+   - Links remain valid while doors remain at seam distance.
+   - Links break only when the seam distance deviates beyond tolerance.
+3) Confirm only airlock doors are walkable when unlinked; all other unlinked doors remain locked.
+
+Acceptance Criteria
+- Connected modules yield a valid ModuleGraph route; GridNav hops appear again.
+- Linked door distance validation matches seam-based adjacency, not coincident overlap.
+- No change to rotation rules.

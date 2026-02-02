@@ -34,7 +34,9 @@ public sealed class ModuleMover
 		_index = 0;
 	}
 
-	public void Update(float dt)
+	public void Update(float dt) => Update(dt, static (_, stepWorld) => stepWorld);
+
+	public void Update(float dt, Func<ShipModuleInstance, Vector2, Vector2> resolveStep)
 	{
 		if (_module is null || _path is null || !_path.IsValid || _path.Waypoints.Count == 0)
 		{
@@ -67,6 +69,8 @@ public sealed class ModuleMover
 		{
 			step = to;
 		}
-		_module.WorldOffset += step;
+
+		var adjusted = resolveStep(_module, step);
+		_module.WorldOffset += adjusted;
 	}
 }

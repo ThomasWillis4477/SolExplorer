@@ -126,7 +126,24 @@ public partial class MainPage : ContentPage
 		{
 			case CellKind.Locker:
 				InteractionTitle.Text = "Locker";
-				InteractionPrimaryButton.Text = _host.World.Player.IsSuitEquipped ? "Remove Suit" : "Equip Suit";
+				{
+					var module = _host.World.GetModuleById(request.ModuleId);
+					if (_host.World.Player.IsSuitEquipped)
+					{
+						InteractionPrimaryButton.IsEnabled = true;
+						InteractionPrimaryButton.Text = "Return Suit";
+					}
+					else if (module?.LockerHasSuit == true)
+					{
+						InteractionPrimaryButton.IsEnabled = true;
+						InteractionPrimaryButton.Text = "Take Suit";
+					}
+					else
+					{
+						InteractionPrimaryButton.IsEnabled = false;
+						InteractionPrimaryButton.Text = "Locker Empty";
+					}
+				}
 				break;
 
 			case CellKind.RcsControl:
@@ -166,18 +183,33 @@ public partial class MainPage : ContentPage
 		switch (req.Kind)
 		{
 			case CellKind.Locker:
-				_host.World.Player.IsSuitEquipped = !_host.World.Player.IsSuitEquipped;
+				{
+					var module = _host.World.GetModuleById(req.ModuleId);
+					if (_host.World.Player.IsSuitEquipped)
+					{
+						_host.World.Player.IsSuitEquipped = false;
+						if (module is not null)
+						{
+							module.LockerHasSuit = true;
+						}
+					}
+					else if (module?.LockerHasSuit == true)
+					{
+						_host.World.Player.IsSuitEquipped = true;
+						module.LockerHasSuit = false;
+					}
+				}
 				break;
 
 			case CellKind.RcsControl:
-				var module = _host.World.GetModuleById(req.ModuleId);
+				var targetModule = _host.World.GetModuleById(req.ModuleId);
 				if (_host.World.RcsModeModule?.ModuleId == req.ModuleId)
 				{
 					_host.Navigation.SetRcsModeModule(null);
 				}
 				else
 				{
-					_host.Navigation.SetRcsModeModule(module);
+					_host.Navigation.SetRcsModeModule(targetModule);
 				}
 				break;
 		}

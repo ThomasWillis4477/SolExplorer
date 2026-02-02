@@ -1,0 +1,166 @@
+Context
+SolExplorer is an isometric modular spaceship game with mouse point + left click movement.
+We already have:
+- NavigationManager dispatching 3 nav systems:
+  - GridNavigator (inside modules)
+  - SpaceNavigator (EVA / in space)
+  - ModuleNavigator (RCS mode)
+- ModuleGraph links for N/E/S/W doors, no module rotation.
+- A demo scene with starter ship modules + wreck + detached modules.
+- F1 debug overlay exists.
+
+New update requirements:
+1) Direction indicators for detached/unlinked modules should ONLY appear when:
+   - the engineer is wearing a space suit AND
+   - the engineer is in space (not inside any module).
+We have a HUD sprite already: spacesuit_directions (in Raw folder).
+2) Add a new interactive equipment tile: Locker (space suit locker).
+   - Clicking an interactive tile should NOT open UI immediately.
+   - Instead: click => pathfind to that tile => when the player arrives on that tile => open a popup UX window listing actions.
+   - This must work for all interactive tiles, including the existing RCS tile, and future ones.
+3) Add a separate, different-coloured (or otherwise visually distinct) direction indicator pointing back to the player’s ship.
+   - Anchor this to the Primary Command Module (ship must always have exactly one primary command).
+   - Salvaged command modules may be attached later but are inactive and must NOT become the anchor.
+   - Only one HOME indicator is shown.
+
+Goals
+- Implement a generic “MoveThenInteract” pipeline: click interactive tile -> move -> on arrival open popup -> execute action.
+- Add Locker equipment tile and suit state.
+- Render EVA-only indicators (detached modules) gated by suit + in-space.
+- Render a single HOME indicator (primary command module) gated by suit + in-space.
+- Minimal refactors; integrate cleanly with existing architecture.
+
+Tasks
+A) Data models / state
+1) Add player state:
+   - PlayerState.IsSuitEquipped (bool)
+2) Add equipment typing:
+   - enum EquipmentType { ... , RcsConsole, Locker, ... }
+   (Use the existing type names if already present; extend them.)
+3) Add module flags for command modules:
+   - ShipModuleInstance.IsCommandModule (bool)
+   - ShipModuleInstance.IsPrimaryCommand (bool)
+   - ShipModuleInstance.IsCommandActive (bool)
+4) Add world helpers:
+   - ShipModuleInstance? GameWorld.GetPrimaryCommandModule()
+   - ShipModuleInstance? GameWorld.GetContainingModule(Vector2/Vector3 playerWorldPos) OR use existing TryFindContainingModule.
+
+B) Locker tile implementation
+1) Add a new interactive equipment tile definition for Locker:
+   - It must be a walkable tile that the player can stand on.
+   - Add sprite binding for a locker tile (temporary placeholder allowed), but ensure spacesuit_directions sprite remains for HUD.
+2) Place at least one locker tile in the starter ship in BuildScene (e.g. in command module or airlock module).
+3) Ensure the locker tile is reachable in the module grid and included in the module grid map.
+
+C) Generic interaction pipeline (MoveThenInteract)
+1) Add an InteractionRequest structure:
+   - EquipmentType Equipment
+   - ShipModuleInstance? Module (nullable for space interactions if needed later)
+   - IntPoint/CellCoord TargetCell (or equivalent tile coordinate)
+   - Vector2/Vector3 TargetWorld
+2) Update click handling:
+   - On left click, determine if the clicked location corresponds to an interactive equipment tile.
+   - If NOT equipment: do normal movement as today.
+   - If equipment:
+     - Set a PendingInteraction = InteractionRequest (store equipment + target tile + module ref).
+     - Issue navigation to the equipment tile like a normal move.
+     - Do NOT open UI yet.
+3) Arrival detection:
+   - Hook into the player mover’s “path complete” event/callback (or poll when IsMoving becomes false).
+   - When movement completes, if PendingInteraction != null:
+     - Verify player is on the target cell (same module + same cell).
+     - If true: open popup UI for that equipment.
+     - Clear PendingInteraction once popup opens.
+   - Cancel rule:
+     - If a new click occurs while moving and it starts a new path, clear PendingInteraction.
+
+D) Popup UX window
+1) Implement a simple modal/popup overlay component (MAUI UI):
+   - Shows equipment name (e.g. “Locker”, “RCS Console”)
+   - Shows action buttons based on equipment type
+   - Close button
+2) Equipment actions:
+   - For Locker:
+     - If IsSuitEquipped == false => show “Equip Suit”
+     - If IsSuitEquipped == true  => show “Remove Suit”
+     - Clicking toggles PlayerState.IsSuitEquipped and closes popup.
+   - For RCS Console (existing):
+     - Provide actions to enter/exit RCS mode as you already support.
+     - Wire these buttons to existing RCS mode toggles.
+3) While popup is open:
+   - Block movement clicks (or treat click outside as close). Keep it simple.
+
+E) EVA-only direction indicators (detached modules)
+1) Implement HUD indicator rendering using the sprite spacesuit_directions:
+   - Render only if:
+     - PlayerState.IsSuitEquipped == true
+     - Player is “in space” (GetContainingModule(playerWorldPos) == null) OR MovementMode == EVA (choose ONE canonical definition).
+2) Targets for indicators:
+   - All modules that are detached/unlinked (no ModuleGraph links) OR those flagged as detached in BuildScene.
+   - Keep it simple: show up to N nearest (e.g. 3–5).
+3) Screen-edge indicator placement:
+   - For each target:
+     - Compute dir = targetCenter - playerPos
+     - Map direction to a point on the screen edge and draw an arrow icon rotated to match dir.
+     - Encode distance by scale or alpha (optional).
+   - If your renderer cannot rotate sprites yet, draw a non-rotated icon at screen edge for now (still useful).
+
+F) HOME indicator (primary command module)
+1) Identify primary command module in BuildScene:
+   - Mark the starter ship command module:
+     - IsCommandModule = true
+     - IsPrimaryCommand = true
+     - IsCommandActive = true
+   - Any wreck command modules (if any) must be:
+     - IsCommandModule = true
+     - IsPrimaryCommand = false
+     - IsCommandActive = false
+2) Render HOME indicator only when suit + in-space, same gating as above:
+   - Anchor position = primary command module center (or a defined “home point”).
+   - Draw exactly ONE indicator.
+3) HOME indicator must be visually distinct from the drifting-module indicators:
+   - Prefer tinting the same sprite a different colour if supported, OR
+   - add a second HUD sprite (placeholder allowed) named e.g. spacesuit_home_indicator.
+   - If tint is possible in your drawing code, do that (e.g. cyan for modules, green for HOME).
+4) Optional: display HOME distance text next to the icon.
+
+G) Debug overlay (small additions)
+1) Under existing debug lines, add:
+   - Location: <moduleId> or In Space (already present in recent builds; keep it)
+   - Suit: ON/OFF
+   - Home: <primary command module id> or None
+   - PendingInteract: <EquipmentType> or None (optional but helpful)
+
+Verification
+1) Click on empty floor tiles: player moves as before.
+2) Click on Locker tile:
+   - Player paths to it.
+   - Popup appears ONLY after arrival.
+   - Button toggles suit state.
+3) Click on RCS tile:
+   - Player paths to it.
+   - Popup appears after arrival.
+   - Button toggles RCS mode.
+4) With suit OFF:
+   - No directional indicators appear anywhere.
+5) With suit ON but inside modules:
+   - No indicators appear.
+6) With suit ON and player in space:
+   - Direction indicators appear for detached modules.
+   - A distinct HOME indicator points back to the primary command module.
+7) F1 debug shows Suit and Home state correctly.
+
+Acceptance Criteria
+- Interaction UI opens only on arrival at interactive tile.
+- Locker toggles suit state.
+- EVA-only HUD indicators are gated by suit + in-space.
+- Exactly one HOME indicator exists, anchored to primary active command module only.
+- System is generic for future equipment tiles (no hardcoded special cases beyond mapping equipment types to actions).
+- No module rotation introduced; no refactor of navigation stack beyond necessary hooks/events.
+
+Notes
+- Keep changes modular. If helpful, introduce:
+  - InteractionManager (handles PendingInteraction + OnPathComplete)
+  - EquipmentRegistry (maps EquipmentType -> actions)
+- Reuse existing rendering pipelines (same place you draw F1 overlay / debug lines).
+- Use the existing spacesuit_directions sprite for HUD arrows; locker tile sprite can be temporary placeholder.

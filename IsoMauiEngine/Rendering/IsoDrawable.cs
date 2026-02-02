@@ -12,7 +12,12 @@ public sealed class IsoDrawable : IDrawable
 	private readonly GameHost _host;
 	private readonly List<DrawItem> _allItems = new(capacity: 2048);
 	private readonly List<DrawItem> _tileItems = new(capacity: 2048);
+	private readonly List<DrawItem> _doorItems = new(capacity: 256);
+	private readonly List<DrawItem> _wallItems = new(capacity: 512);
+	private readonly List<DrawItem> _lockerItems = new(capacity: 64);
+	private readonly List<DrawItem> _rcsItems = new(capacity: 64);
 	private readonly List<DrawItem> _entityItems = new(capacity: 512);
+	private readonly List<DrawItem> _occluderItems = new(capacity: 2048);
 
 	public IsoDrawable(GameHost host)
 	{
@@ -36,7 +41,12 @@ public sealed class IsoDrawable : IDrawable
 
 		_allItems.Clear();
 		_tileItems.Clear();
+		_doorItems.Clear();
+		_wallItems.Clear();
+		_lockerItems.Clear();
+		_rcsItems.Clear();
 		_entityItems.Clear();
+		_occluderItems.Clear();
 
 		_host.World.AppendDrawItems(_allItems);
 		for (var i = 0; i < _allItems.Count; i++)
@@ -44,7 +54,26 @@ public sealed class IsoDrawable : IDrawable
 			var item = _allItems[i];
 			if (item.Type == DrawItemType.Tile)
 			{
-				_tileItems.Add(item);
+				if (item.Kind == DrawKind.DoorTile)
+				{
+					_doorItems.Add(item);
+				}
+				else if (item.Kind == DrawKind.WallTile)
+				{
+					_wallItems.Add(item);
+				}
+				else if (item.Kind == DrawKind.LockerMarker)
+				{
+					_lockerItems.Add(item);
+				}
+				else if (item.Kind == DrawKind.RcsMarker)
+				{
+					_rcsItems.Add(item);
+				}
+				else
+				{
+					_tileItems.Add(item);
+				}
 			}
 			else
 			{
@@ -53,17 +82,184 @@ public sealed class IsoDrawable : IDrawable
 		}
 
 		// Ground pass: tiles never occlude entities.
+		// Draw a floor base under doors first, then draw remaining floor/markers.
+		for (var i = 0; i < _doorItems.Count; i++)
+		{
+			_host.Renderer.DrawSpriteOrPlaceholder(canvas, _doorItems[i] with
+			{
+				Kind = DrawKind.FloorTile,
+				Height = 0f,
+				LayerBias = -1000f,
+			});
+		}
+
 		_tileItems.Sort(static (a, b) => a.SortKey.CompareTo(b.SortKey));
 		for (var i = 0; i < _tileItems.Count; i++)
 		{
 			_host.Renderer.DrawSpriteOrPlaceholder(canvas, _tileItems[i]);
 		}
 
-		// Entity pass: depth sort entities by their feet (SortY) + optional HeightBias/LayerBias.
-		_entityItems.Sort(static (a, b) => a.SortKey.CompareTo(b.SortKey));
+		// Dynamic occlusion pass:
+		// - Doors/walls north, north-east, north-west, and west of the player render before the player.
+		// - Doors/walls south, south-east, south-west, and east of the player render after the player.
+		// - Walls directly north or west of a door (i.e., the wall tile has a door immediately south or east)
+		//   are biased to render behind that door.
+		var playerPos = _host.World.Player.WorldPos;
+		var playerItem = default(DrawItem);
 		for (var i = 0; i < _entityItems.Count; i++)
 		{
-			_host.Renderer.DrawSpriteOrPlaceholder(canvas, _entityItems[i]);
+			if (_entityItems[i].Type == DrawItemType.Player)
+			{
+				playerItem = _entityItems[i];
+				break;
+			}
+		}
+		var playerCell = GridCellFromWorld(playerPos);
+		var wallBiasByCell = new Dictionary<(int moduleId, int x, int y), float>(capacity: _wallItems.Count);
+
+		for (var i = 0; i < _wallItems.Count; i++)
+		{
+			var wall = _wallItems[i];
+			var occlusionBias = GetPlayerOcclusionBias(wall.WorldPos, playerPos);
+			var doorAdjBias = IsWallNorthOrWestOfDoor(wall) ? -0.05f : +0.05f;
+			var computedBias = wall.LayerBias + occlusionBias + doorAdjBias;
+			_occluderItems.Add(wall with { LayerBias = computedBias });
+			if (_host.World.TryFindContainingModule(wall.WorldPos, out var wm, out var wc))
+			{
+				wallBiasByCell[(wm.ModuleId, wc.X, wc.Y)] = computedBias;
+			}
+		}
+
+		for (var i = 0; i < _doorItems.Count; i++)
+		{
+			var door = ResolveDoorFrame(_doorItems[i], out var isWalkableDoorTile);
+			var occlusionBias = GetPlayerOcclusionBias(door.WorldPos, playerPos);
+
+			// Special-case: if the player is standing on (or rounding onto) a walkable door tile,
+			// draw the door before the player so the player overlays the doorway.
+			// This also covers the "entering from the south" transition where grid rounding may
+			// already snap the player onto the door tile mid-step.
+			if (isWalkableDoorTile && GridCellFromWorld(door.WorldPos) == playerCell)
+			{
+				occlusionBias = -100_000f;
+			}
+			_occluderItems.Add(door with { LayerBias = door.LayerBias + occlusionBias });
+		}
+
+		// Locker props: draw after walls/doors but before the player.
+		for (var i = 0; i < _lockerItems.Count; i++)
+		{
+			var locker = _lockerItems[i];
+			// Default: keep lockers between walls (typically +/-100k) and the player (near 0).
+			var computedBias = locker.LayerBias - 90_000f;
+
+			// If the locker has any surrounding wall tiles (8-neighborhood), render the locker
+			// after those wall tiles by pushing it just past the maximum adjacent wall bias.
+			if (_host.World.TryFindContainingModule(locker.WorldPos, out var lm, out var lc))
+			{
+				var maxAdjWallBias = float.NegativeInfinity;
+				var hasAdjWall = false;
+				for (var dy = -1; dy <= 1; dy++)
+				{
+					for (var dx = -1; dx <= 1; dx++)
+					{
+						if (dx == 0 && dy == 0)
+						{
+							continue;
+						}
+						var nx = lc.X + dx;
+						var ny = lc.Y + dy;
+						var ncell = new AStarGrid.Cell(nx, ny);
+						if (_host.World.TryGetCellKind(lm, ncell, out var nk) && nk == CellKind.Wall)
+						{
+							hasAdjWall = true;
+							if (wallBiasByCell.TryGetValue((lm.ModuleId, nx, ny), out var wb))
+							{
+								maxAdjWallBias = MathF.Max(maxAdjWallBias, wb);
+							}
+							else
+							{
+								// Fallback if we didn't cache the wall bias for some reason.
+								var wWorld = IsoMath.GridToWorld(nx, ny) + lm.WorldOffset;
+								var wb2 = locker.LayerBias + GetPlayerOcclusionBias(wWorld, playerPos) + 0.05f;
+								maxAdjWallBias = MathF.Max(maxAdjWallBias, wb2);
+							}
+						}
+					}
+				}
+
+				if (hasAdjWall && float.IsFinite(maxAdjWallBias))
+				{
+					computedBias = MathF.Max(computedBias, maxAdjWallBias + 0.01f);
+				}
+			}
+
+			_occluderItems.Add(locker with { LayerBias = computedBias });
+		}
+
+		// RCS console prop: same layering rules as locker.
+		for (var i = 0; i < _rcsItems.Count; i++)
+		{
+			var rcs = _rcsItems[i];
+			// RCS must render before the player and before lockers.
+			// Lockers default to -90_000f, so keep RCS strictly more negative.
+			const float rcsUpperBound = -90_001f;
+			var computedBias = rcs.LayerBias - 95_000f;
+
+			if (_host.World.TryFindContainingModule(rcs.WorldPos, out var rm, out var rc))
+			{
+				var maxAdjWallBias = float.NegativeInfinity;
+				var hasAdjWall = false;
+				for (var dy = -1; dy <= 1; dy++)
+				{
+					for (var dx = -1; dx <= 1; dx++)
+					{
+						if (dx == 0 && dy == 0)
+						{
+							continue;
+						}
+						var nx = rc.X + dx;
+						var ny = rc.Y + dy;
+						var ncell = new AStarGrid.Cell(nx, ny);
+						if (_host.World.TryGetCellKind(rm, ncell, out var nk) && nk == CellKind.Wall)
+						{
+							hasAdjWall = true;
+							if (wallBiasByCell.TryGetValue((rm.ModuleId, nx, ny), out var wb))
+							{
+								maxAdjWallBias = MathF.Max(maxAdjWallBias, wb);
+							}
+							else
+							{
+								var wWorld = IsoMath.GridToWorld(nx, ny) + rm.WorldOffset;
+								var wb2 = rcs.LayerBias + GetPlayerOcclusionBias(wWorld, playerPos) + 0.05f;
+								maxAdjWallBias = MathF.Max(maxAdjWallBias, wb2);
+							}
+						}
+					}
+				}
+
+				if (hasAdjWall && float.IsFinite(maxAdjWallBias))
+				{
+					// Try to draw after the adjacent wall, but never exceed the upper bound
+					// (which would place the console after lockers or potentially after the player).
+					var required = maxAdjWallBias + 0.01f;
+					computedBias = MathF.Max(computedBias, required);
+					computedBias = MathF.Min(computedBias, rcsUpperBound);
+				}
+			}
+
+			_occluderItems.Add(rcs with { LayerBias = computedBias });
+		}
+
+		for (var i = 0; i < _entityItems.Count; i++)
+		{
+			_occluderItems.Add(_entityItems[i]);
+		}
+
+		_occluderItems.Sort(static (a, b) => a.SortKey.CompareTo(b.SortKey));
+		for (var i = 0; i < _occluderItems.Count; i++)
+		{
+			_host.Renderer.DrawSpriteOrPlaceholder(canvas, _occluderItems[i]);
 		}
 
 		DrawEvaHudIndicators(canvas, dirtyRect);
@@ -78,6 +274,96 @@ public sealed class IsoDrawable : IDrawable
 			DrawNavigationDebug(canvas);
 			DrawModuleDebugOverlay(canvas);
 		}
+	}
+
+	private static float GetPlayerOcclusionBias(Vector2 itemWorldPos, Vector2 playerWorldPos)
+	{
+		// Use grid directions for stable classification across camera zoom/pan.
+		var itemGrid = IsoMath.WorldToGrid(itemWorldPos);
+		var playerGrid = IsoMath.WorldToGrid(playerWorldPos);
+		var ix = (int)MathF.Round(itemGrid.X);
+		var iy = (int)MathF.Round(itemGrid.Y);
+		var px = (int)MathF.Round(playerGrid.X);
+		var py = (int)MathF.Round(playerGrid.Y);
+		var dx = ix - px;
+		var dy = iy - py;
+
+		// Behind player: north, north-east, north-west, and west.
+		// In front of player: south, south-east, south-west, and east.
+		var isBehindPlayer = dy < 0 || (dy == 0 && dx < 0);
+		return isBehindPlayer ? -100_000f : 100_000f;
+	}
+
+	private bool IsWallNorthOrWestOfDoor(DrawItem wallItem)
+	{
+		// "Walls in tiles next to a door to the north and west of the door" ==
+		// wall tile whose south neighbor is a door OR whose east neighbor is a door.
+		if (!_host.World.TryFindContainingModule(wallItem.WorldPos, out var module, out var cell))
+		{
+			return false;
+		}
+		if (!_host.World.TryGetCellKind(module, cell, out var kind) || kind != CellKind.Wall)
+		{
+			return false;
+		}
+
+		var minX = module.OriginX;
+		var minY = module.OriginY;
+		var maxX = module.OriginX + module.Width - 1;
+		var maxY = module.OriginY + module.Height - 1;
+
+		// South neighbor (door below) => wall is north of a door.
+		if (cell.Y < maxY)
+		{
+			var south = new AStarGrid.Cell(cell.X, cell.Y + 1);
+			if (south.X >= minX && south.X <= maxX && south.Y >= minY && south.Y <= maxY
+				&& _host.World.TryGetCellKind(module, south, out var southKind)
+				&& southKind == CellKind.Door)
+			{
+				return true;
+			}
+		}
+
+		// East neighbor (door right) => wall is west of a door.
+		if (cell.X < maxX)
+		{
+			var east = new AStarGrid.Cell(cell.X + 1, cell.Y);
+			if (east.X >= minX && east.X <= maxX && east.Y >= minY && east.Y <= maxY
+				&& _host.World.TryGetCellKind(module, east, out var eastKind)
+				&& eastKind == CellKind.Door)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static (int X, int Y) GridCellFromWorld(Vector2 world)
+	{
+		var g = IsoMath.WorldToGrid(world);
+		return ((int)MathF.Round(g.X), (int)MathF.Round(g.Y));
+	}
+
+	private DrawItem ResolveDoorFrame(DrawItem item, out bool isWalkableDoorTile)
+	{
+		// Door0: N/S open, Door1: N/S closed, Door2: E/W open, Door3: E/W closed.
+		if (_host.World.TryFindContainingModule(item.WorldPos, out var module, out var cell)
+			&& _host.World.TryGetCellKind(module, cell, out var kind)
+			&& kind == CellKind.Door
+			&& module.TryGetDoorSideAtWorldCell(cell.X, cell.Y, out var side))
+		{
+			var isOpen = _host.World.IsWalkableCellInModule(module, cell.X, cell.Y);
+			isWalkableDoorTile = isOpen;
+			var isNorthSouth = side is DoorSide.North or DoorSide.South;
+			var frame = isNorthSouth
+				? (isOpen ? 0 : 1)
+				: (isOpen ? 2 : 3);
+			return item with { Frame = frame };
+		}
+
+		isWalkableDoorTile = false;
+		return item;
 	}
 
 	private void DrawEvaHudIndicators(ICanvas canvas, RectF viewport)

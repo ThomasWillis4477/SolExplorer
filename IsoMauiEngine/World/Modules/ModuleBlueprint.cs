@@ -16,7 +16,7 @@ public sealed class ModuleBlueprint
 		EastDoor = new Vector2(width - 1, height / 2);
 
 		// Simple default marker position.
-		RcsControl = new Vector2(2 ,2);
+		RcsControl = new Vector2(1 ,1);
 		Locker = new Vector2(-1, -1);
 	}
 

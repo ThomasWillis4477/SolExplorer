@@ -1,0 +1,42 @@
+GOAL
+Implement correct door passability rules for ship modules so that unconnected (floating/derelict) modules remain accessible, while connected modules only allow traversal through linked doors.
+
+PROBLEM
+Currently, ShipModuleInstance doors are created as Walkable=true, but GameWorld.IsDoorTilePassable() overrides this by only allowing door traversal when a ModuleGraph link exists for that door side.
+
+This causes an issue where a module with zero connections has all doors blocked at runtime, making it impossible to enter a floating module to reach its RCS or locker.
+
+DESIRED RULE (PRIORITY)
+For each module:
+0) If module.IsAirlock == true:
+   - Door tiles remain passable as per current logic (airlocks always passable).
+1) Else if the module has ZERO connected doors in ModuleGraph:
+   - ALL door tiles should be passable.
+2) Else (module has ONE OR MORE connected doors):
+   - ONLY the linked door(s) should be passable.
+   - All other doors should be blocked.
+
+
+IMPLEMENTATION INSTRUCTIONS
+Modify IsoMauiEngine/World/GameWorld.cs
+Method: IsDoorTilePassable(ShipModuleInstance module, int worldGridX, int worldGridY)
+
+Add logic to:
+- Detect whether the module has any linked doors at all.
+- If none exist, return true for all door sides.
+- Otherwise, keep existing behavior: only allow traversal if the specific door side has a ModuleGraph link.
+
+CODE CHANGE
+Update IsDoorTilePassable() to:
+
+- Determine the DoorSide for the world cell.
+- Scan all DoorSide values using ModuleGraph.TryGetLink(module.ModuleId, side, out _).
+- If no links are found, allow all doors.
+- If at least one link exists, only allow the linked door.
+
+DO NOT:
+- Change ShipModuleInstance.GenerateCells()
+- Change door cell creation defaults
+- Add new state fields unless required
+
+This change should affect movement logic only and preserve existing pathfinding and rendering behavior.

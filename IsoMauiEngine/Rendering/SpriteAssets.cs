@@ -7,12 +7,33 @@ public static class SpriteAssets
 {
 	private static readonly SemaphoreSlim Gate = new(1, 1);
 
-	private static bool AreAllReady => EngineerWalking is not null && DeckPlateNormal is not null;
+	private static bool AreAllReady => EngineerWalking is not null
+		&& DeckPlateNormal is not null
+		&& Wall0 is not null
+		&& RcsConsole0 is not null
+		&& RcsConsole1 is not null
+		&& RcsConsole2 is not null
+		&& LockerEmpty is not null
+		&& LockerWithSuit is not null
+		&& Door0 is not null
+		&& Door1 is not null
+		&& Door2 is not null
+		&& Door3 is not null;
 
 	public static SpriteSheet? EngineerWalking { get; private set; }
 	public static SpriteSheet? SpacesuitDirections { get; private set; }
 	public static Microsoft.Maui.Graphics.IImage? DeckPlateNormal { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? Wall0 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? RcsConsole0 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? RcsConsole1 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? RcsConsole2 { get; private set; }
 	public static Microsoft.Maui.Graphics.IImage? WorldBackground { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? LockerEmpty { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? LockerWithSuit { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? Door0 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? Door1 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? Door2 { get; private set; }
+	public static Microsoft.Maui.Graphics.IImage? Door3 { get; private set; }
 
 	public static bool IsReady => EngineerWalking is not null;
 
@@ -94,6 +115,38 @@ public static class SpriteAssets
 				RouteDebugLogger.Log("[Sprite] Failed to load DeckPlateNormal");
 			}
 
+			// Default wall sprite.
+			if (Wall0 is null)
+			{
+				Wall0 = await TryLoadImageAsync(
+					"sprites/Wall0.png",
+					"sprites/wall0.png").ConfigureAwait(false);
+				RouteDebugLogger.Log($"[Sprite] Loaded Wall0={(Wall0 is not null)}");
+			}
+
+			// RCS console sprite (tile prop).
+			if (RcsConsole0 is null)
+			{
+				RcsConsole0 = await TryLoadImageAsync(
+					"sprites/RCSconsole0.png",
+					"sprites/rcsconsole0.png").ConfigureAwait(false);
+				RouteDebugLogger.Log($"[Sprite] Loaded RcsConsole0={(RcsConsole0 is not null)}");
+			}
+			if (RcsConsole1 is null)
+			{
+				RcsConsole1 = await TryLoadImageAsync(
+					"sprites/RCSconsole1.png",
+					"sprites/rcsconsole1.png").ConfigureAwait(false);
+				RouteDebugLogger.Log($"[Sprite] Loaded RcsConsole1={(RcsConsole1 is not null)}");
+			}
+			if (RcsConsole2 is null)
+			{
+				RcsConsole2 = await TryLoadImageAsync(
+					"sprites/RCSconsole2.png",
+					"sprites/rcsconsole2.png").ConfigureAwait(false);
+				RouteDebugLogger.Log($"[Sprite] Loaded RcsConsole2={(RcsConsole2 is not null)}");
+			}
+
 			// World background image (screen-space).
 			// Note: package filename (Resources/Raw/sprites/MilkyWayPanorama8K.jpg).
 			if (WorldBackground is null)
@@ -113,7 +166,40 @@ public static class SpriteAssets
 				}
 			}
 
-			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Suit={SpacesuitDirections is not null}, Deck={DeckPlateNormal is not null}, Bg={WorldBackground is not null})");
+			// Locker sprites (tile props).
+			if (LockerEmpty is null || LockerWithSuit is null)
+			{
+				var lockerEmpty = await TryLoadImageAsync(
+					"sprites/Locker0.png",
+					"sprites/locker0.png").ConfigureAwait(false);
+				var lockerSuit = await TryLoadImageAsync(
+					"sprites/Locker1.png",
+					"sprites/locker1.png").ConfigureAwait(false);
+
+				LockerEmpty = lockerEmpty;
+				LockerWithSuit = lockerSuit;
+				RouteDebugLogger.Log($"[Sprite] Loaded Locker sprites (Empty={(LockerEmpty is not null)}, WithSuit={(LockerWithSuit is not null)})");
+			}
+
+			// Door sprites.
+			if (Door0 is null || Door1 is null || Door2 is null || Door3 is null)
+			{
+				Door0 = await TryLoadImageAsync(
+					"sprites/Door0.png",
+					"sprites/door0.png").ConfigureAwait(false);
+				Door1 = await TryLoadImageAsync(
+					"sprites/Door1.png",
+					"sprites/door1.png").ConfigureAwait(false);
+				Door2 = await TryLoadImageAsync(
+					"sprites/Door2.png",
+					"sprites/door2.png").ConfigureAwait(false);
+				Door3 = await TryLoadImageAsync(
+					"sprites/Door3.png",
+					"sprites/door3.png").ConfigureAwait(false);
+				RouteDebugLogger.Log($"[Sprite] Loaded Door sprites (Door0={(Door0 is not null)}, Door1={(Door1 is not null)}, Door2={(Door2 is not null)}, Door3={(Door3 is not null)})");
+			}
+
+			RouteDebugLogger.Log($"[Sprite] Ready={AreAllReady} (Walking={EngineerWalking is not null}, Suit={SpacesuitDirections is not null}, Deck={DeckPlateNormal is not null}, Wall0={Wall0 is not null}, Rcs0={RcsConsole0 is not null}, Rcs1={RcsConsole1 is not null}, Rcs2={RcsConsole2 is not null}, Bg={WorldBackground is not null}, Locker0={LockerEmpty is not null}, Locker1={LockerWithSuit is not null}, Door0={Door0 is not null}, Door1={Door1 is not null}, Door2={Door2 is not null}, Door3={Door3 is not null})");
 		}
 		finally
 		{

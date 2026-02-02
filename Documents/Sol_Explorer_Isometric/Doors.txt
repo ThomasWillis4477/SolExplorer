@@ -1,0 +1,128 @@
+You are working in SolExplorer / IsoMauiEngine (C# / .NET MAUI). Implement the “basic room” system using what already exists.
+
+High-level goal:
+Create 3 structural room blueprints (Small 6x6, Medium 11x11, Large 16x16) that generate an empty ship module:
+- deck floor tiles (already render via the deck plate sprite)
+- perimeter wall tiles (NEW)
+- 4 doors/hatches centered on each wall (NEW)
+- one RCS control tile inside (NEW marker tile for now)
+
+Rendering goal:
+Keep the current floor rendering (sprite-based deck tile). For walls and doors, DO NOT introduce new images yet.
+Instead, use the existing DrawIsoTile (diamond plane) as a guide to implement:
+- DrawIsoWallTile(...) => draws a 3D-looking isometric “cube” (top face + 2 visible side faces)
+- DrawIsoDoorTile(...) => like a wall cube but visually “door-like” (an inset panel or different shading)
+These must have HEIGHT (i.e., walls should look like raised blocks), not flat planes.
+
+Constraints:
+- Minimal change: do not rewrite engine architecture.
+- Use existing DrawItem pipeline.
+- Keep Camera2D transforms (zoom/pixel snap) working.
+- Keep sorting stable with the new SortKey system.
+- Use MAUI ICanvas primitives (PathF, FillColor/StrokeColor).
+- No external libs.
+
+Implementation tasks:
+
+1) Data model: blueprints + module generation
+- Add a new folder: IsoMauiEngine/World/Modules/
+- Create:
+  a) enum ModuleSizePreset { Small, Medium, Large }
+  b) class ModuleBlueprint
+     - int Width, Height
+     - Func<int,int,bool> IsWallCell (true for perimeter)
+     - Door positions: one per side centered:
+       - North: (Width/2, 0)
+       - South: (Width/2, Height-1)
+       - West:  (0, Height/2)
+       - East:  (Width-1, Height/2)
+     - RCS control position: default near center (Width/2, Height/2) or slightly offset
+  c) static class BlueprintLibrary with:
+     - Get(ModuleSizePreset preset) returning a ModuleBlueprint for each size
+
+- Add a new world object:
+  d) class ShipModuleInstance
+     - ModuleBlueprint Blueprint
+     - int GridX, GridY origin in world grid (for now place at 0,0)
+     - Tile types generated from blueprint
+
+- Add tile typing:
+  e) enum CellKind { Floor, Wall, Door, RcsControl }
+  f) struct ModuleCell { CellKind Kind; bool Walkable; float Height; }
+     - Floor: Walkable=true, Height=0
+     - Wall: Walkable=false, Height=1 (or some float)
+     - Door: Walkable=true initially, Height=1 (door frame height)
+     - RcsControl: Walkable=true, Height=0 (marker)
+
+2) World integration
+- Modify GameWorld (IsoMauiEngine/World/GameWorld.cs):
+  - Replace the hardcoded 10x10 TileMap demo with:
+    - one ShipModuleInstance generated from ModuleSizePreset (start with Medium)
+    - a simple ModuleGridMap adapter that emits DrawItems for:
+      - floor cells => existing floor draw
+      - wall cells => NEW wall draw items
+      - door cells => NEW door draw items
+      - rcs control => draw a small marker (simple colored diamond) on the floor
+
+- Keep the Player entity, but spawn it at the RCS control tile or adjacent walkable cell.
+
+3) DrawItems: support wall/door height
+- Update DrawItem (IsoMauiEngine/Rendering/DrawItem.cs):
+  - Add:
+    - public float Height { get; init; } = 0f;  // for raised blocks
+    - public DrawKind Kind (existing or add):
+      enum DrawKind { FloorTile, WallTile, DoorTile, Entity, Marker }
+  - Ensure SortKey remains stable:
+    - For walls/doors, SortKey should still use the “footprint” world Y (base), but allow a HeightBias so tall blocks don’t pop incorrectly.
+    - Apply a default HeightBias for WallTile/DoorTile like -0.001f * Height or a small tweak; document the convention.
+
+4) Renderer2D: implement cube drawing for walls/doors
+- In IsoMauiEngine/Rendering/Renderer2D.cs:
+  - Keep existing floor tile drawing (deck sprite) unchanged.
+  - Add methods:
+    - private void DrawIsoWallTile(ICanvas canvas, Vector2 worldPos, Camera2D cam, float height)
+    - private void DrawIsoDoorTile(ICanvas canvas, Vector2 worldPos, Camera2D cam, float height)
+  - Use DrawIsoTile as a guide for the top face. Then add two side faces:
+    - Top face: the existing diamond at the tile position.
+    - Side face A (right-facing): a quad connecting the top diamond’s right edge down by “height”
+    - Side face B (bottom-facing): a quad connecting the top diamond’s bottom edge down by “height”
+  - The “down by height” should be in SCREEN space (vertical pixels). Use a constant:
+    - const float WallPixelHeightBase = 18f;
+    - wallScreenHeight = WallPixelHeightBase * cam.Zoom * height;
+  - Use simple shading by color only:
+    - Top: lighter gray
+    - Right side: medium gray
+    - Bottom side: darker gray
+    - Keep stroke subtle
+  - Door tile styling:
+    - Same cube silhouette as wall
+    - Add an “inset door panel” on the top face (smaller diamond) or a vertical slit on one side face
+    - Slightly different colors to read as a hatch
+
+- Route all drawing through a single switch based on DrawItem.Kind:
+  - FloorTile => existing sprite draw
+  - WallTile => DrawIsoWallTile
+  - DoorTile => DrawIsoDoorTile
+  - Marker => small colored diamond on floor
+
+5) Collision / walkability
+- Ensure Player movement cannot enter Wall cells.
+- Door cells should be walkable for now.
+- RCS control cell walkable.
+- If your movement is still freeform (not tile step), clamp movement by testing the target cell’s Walkable.
+
+6) Debug quality-of-life (important)
+- Add an optional debug overlay toggle (bool) to draw:
+  - cell grid bounds
+  - door positions
+  - module outline
+This can be a simple key toggle for now (even if keyboard is later removed).
+
+Deliverables:
+- Running app displays a single empty module room:
+  - deck floor tiles
+  - cube-like walls around edges
+  - 4 door cubes centered on each side
+  - a visible RCS control marker tile inside
+- Player spawns inside and can move only within walkable floor/door cells.
+- No sprites are required for walls/doors yet; they are drawn procedurally as iso cubes.

@@ -8,6 +8,7 @@ namespace IsoMauiEngine.Entities;
 public sealed class Player : Entity
 {
 	public bool IsSuitEquipped { get; set; }
+	public bool IsInRcsMode => _isInRcsMode;
 
 	private const float WalkFps = 3.5f;
 	private const int WalkFrames = 4;
@@ -16,6 +17,29 @@ public sealed class Player : Entity
 	private float _animSeconds;
 	private bool _isMoving;
 	private Vector2 _worldVelocity;
+	private bool _isInRcsMode;
+	private bool _prevSuitEquippedForRcs;
+
+	public void EnterRcsMode()
+	{
+		if (_isInRcsMode)
+		{
+			return;
+		}
+		_isInRcsMode = true;
+		_prevSuitEquippedForRcs = IsSuitEquipped;
+	}
+
+	public void ExitRcsMode()
+	{
+		if (!_isInRcsMode)
+		{
+			return;
+		}
+		_isInRcsMode = false;
+		// Restore the previously-active player presentation (engineer vs spacesuit).
+		IsSuitEquipped = _prevSuitEquippedForRcs;
+	}
 
 	public void SetMotion(Vector2 worldVelocity, bool isMoving)
 	{
@@ -53,6 +77,25 @@ public sealed class Player : Entity
 
 	internal DrawItem CreateDrawItem()
 	{
+		if (_isInRcsMode)
+		{
+			// When seated at the console, the player renders as an RCS console variant.
+			// Variant mapping:
+			// - Engineer sprite -> RCSconsole1
+			// - Spacesuit sprite -> RCSconsole2
+			var variant = _prevSuitEquippedForRcs ? 2 : 1;
+			return new DrawItem(
+				DrawItemType.Player,
+				WorldPos,
+				IsoMath.SortKey(WorldPos) + 0.001f,
+				Facing: Direction8.S,
+				Frame: variant,
+				IsMoving: false,
+				LayerBias: 0f,
+				Kind: DrawKind.RcsConsolePlayer,
+				IsSuitEquipped: _prevSuitEquippedForRcs);
+		}
+
 		var useSuitSprite = IsSuitEquipped;
 		var frame = useSuitSprite ? 0 : (_isMoving ? (int)(_animSeconds * WalkFps) % WalkFrames : 0);
 		var moving = useSuitSprite ? false : _isMoving;

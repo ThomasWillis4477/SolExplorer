@@ -184,6 +184,22 @@ public sealed class GridNavigator : INavigator
 			return path;
 		}
 
+		// If the current module is fully disconnected (no linked doors), treat any door as an exterior
+		// exit to space. This prevents the player from getting stuck inside a floating module.
+		var startHasAnyLinkedDoor = false;
+		foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
+		{
+			if (_world.ModuleGraph.TryGetLink(startModule.ModuleId, side, out _))
+			{
+				startHasAnyLinkedDoor = true;
+				break;
+			}
+		}
+		if (!startHasAnyLinkedDoor)
+		{
+			return ComputeExitToNearestDoor(startWorld);
+		}
+
 		ShipModuleInstance? chosenAirlock = null;
 		List<int>? chosenRoute = null;
 		var bestDist2 = float.PositiveInfinity;

@@ -40,6 +40,7 @@ public sealed class ShipModuleInstance
 	public bool IsDerelict { get; set; }
 	public bool IsAirlock { get; set; }
 	public bool IsCommandModule { get; set; }
+	public bool LockerHasSuit { get; set; }
 
 	public bool TryGetDoorSideAtWorldCell(int worldGridX, int worldGridY, out DoorSide side)
 	{

@@ -46,6 +46,7 @@ public sealed class ModuleNavigator : INavigator
 	public bool TrySnapDock(ShipModuleInstance moving)
 	{
 		// Snap-docking: if any moving door is within tolerance of an opposite door, align and link.
+		var snapped = false;
 		foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
 		{
 			var doorPos = moving.GetDoorWorldPos(side);
@@ -67,11 +68,68 @@ public sealed class ModuleNavigator : INavigator
 					var delta = desiredDoorPos - doorPos;
 					moving.WorldOffset += delta;
 					_world.ModuleGraph.TryLinkDoors(moving.ModuleId, side, other.ModuleId, opposite);
-					return true;
+					snapped = true;
+					break;
+				}
+			}
+			if (snapped)
+			{
+				break;
+			}
+		}
+
+		if (!snapped)
+		{
+			return false;
+		}
+
+		// After snapping, it's possible that more than one door is now aligned.
+		// Link any additional eligible doors for the moving module without moving it again.
+		var linkedMore = true;
+		var safety = 0;
+		while (linkedMore && safety++ < 4)
+		{
+			linkedMore = false;
+			foreach (DoorSide side in Enum.GetValues(typeof(DoorSide)))
+			{
+				// Don't overwrite existing links.
+				if (_world.ModuleGraph.TryGetLink(moving.ModuleId, side, out _))
+				{
+					continue;
+				}
+
+				var doorPos = moving.GetDoorWorldPos(side);
+				var seamStep = ShipModuleInstance.GetWorldStepForSide(side);
+				var opposite = side.Opposite();
+				for (var i = 0; i < _world.Modules.Count; i++)
+				{
+					var other = _world.Modules[i];
+					if (other.ModuleId == moving.ModuleId)
+					{
+						continue;
+					}
+
+					// Don't steal/overwrite a link from the other module either.
+					if (_world.ModuleGraph.TryGetLink(other.ModuleId, opposite, out _))
+					{
+						continue;
+					}
+
+					var otherDoorPos = other.GetDoorWorldPos(opposite);
+					var desiredOtherDoorPos = doorPos + seamStep;
+					if (Vector2.Distance(desiredOtherDoorPos, otherDoorPos) <= _snapTolerance)
+					{
+						if (_world.ModuleGraph.TryLinkDoors(moving.ModuleId, side, other.ModuleId, opposite))
+						{
+							linkedMore = true;
+							break;
+						}
+					}
 				}
 			}
 		}
-		return false;
+
+		return true;
 	}
 
 	private CircleObstacle? FindFirstBlocking(Vector2 a, Vector2 b, IReadOnlyList<CircleObstacle> obstacles)

@@ -8,6 +8,7 @@ public sealed class ModuleGridMap
 	private readonly ShipModuleInstance _module;
 	private readonly List<DrawItem> _cached;
 	private System.Numerics.Vector2 _cachedOffset;
+	private bool _cachedLockerHasSuit;
 
 	public ModuleGridMap(ShipModuleInstance module)
 	{
@@ -20,7 +21,7 @@ public sealed class ModuleGridMap
 
 	public void AppendDrawItems(List<DrawItem> drawItems)
 	{
-		if (_cachedOffset != _module.WorldOffset)
+		if (_cachedOffset != _module.WorldOffset || _cachedLockerHasSuit != _module.LockerHasSuit)
 		{
 			RebuildDrawCache();
 		}
@@ -47,6 +48,7 @@ public sealed class ModuleGridMap
 	{
 		_cached.Clear();
 		_cachedOffset = _module.WorldOffset;
+		_cachedLockerHasSuit = _module.LockerHasSuit;
 		for (var y = 0; y < _module.Height; y++)
 		{
 			for (var x = 0; x < _module.Width; x++)
@@ -118,11 +120,11 @@ public sealed class ModuleGridMap
 								WorldPos: worldPos,
 								SortY: IsoMath.SortKey(worldPos),
 								Facing: Direction8.S,
-								Frame: 0,
+								Frame: _module.LockerHasSuit ? 1 : 0,
 								IsMoving: false,
 								LayerBias: -0.0125f,
 								Height: 0f,
-							Kind: DrawKind.LockerMarker));
+								Kind: DrawKind.LockerMarker));
 							break;
 				}
 			}

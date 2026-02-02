@@ -1,0 +1,88 @@
+Context
+We have implemented the SolExplorer movement architecture:
+- NavigationManager dispatches by MovementMode: InsideModule (GridNavigator), EVA (SpaceNavigator), ModuleRCS (ModuleNavigator).
+- Shared models: NavRequest, NavPath, RequesterType, MovementMode.
+- Module system: ModuleInstance + DoorSide (N/E/S/W) + ModuleGraph with opposite-side links only (no rotation).
+- SpaceNav/ModuleNav: line-of-sight + single-detour avoidance using _world.SpaceObstacles (currently mostly empty).
+We now need a vertical-slice test scenario aligned with the GDD: a starter ship + a wreck with some linked modules and some free-floating, plus debris obstacles. We also need door links to auto-break if modules drift apart.
+
+Goals
+1) Create a minimal salvage-demo scene in BuildScene():
+   - Player starter ship with multiple linked modules.
+   - Derelict wreck with multiple modules: some linked, some detached (free floating nearby).
+   - Visually/structurally separated so EVA is required to reach parts of the wreck.
+2) Populate _world.SpaceObstacles so EVA/Module detour logic is testable.
+3) Implement auto-unlink validation: if two linked doors drift beyond tolerance, break the link and bump graph version.
+4) Add minimal debug overlay for door/link state (optional but strongly preferred).
+
+Tasks
+A) BuildScene() upgrade (or create WorldBuilder.BuildSalvageDemoScene())
+- Create module presets per GDD sizes: Small (6x6), Medium (11x11), Large (16x16). Use whichever already exists.
+- Instantiate modules for STARTER SHIP near origin:
+  - Command module (Medium)
+  - Life support (Small)
+  - Generator (Small)
+  - Cargo (Medium)
+  - Airlock (Small) (ensure player can exit here)
+  - Main engine (Medium) (optional)
+- Position them on a simple 2D world plane using WorldOffset translation only (no rotation).
+- Link doors to form a coherent interior graph:
+  - Example links (adjust as needed):
+    - Command East <-> Cargo West
+    - Command South <-> Airlock North
+    - Cargo South <-> Generator North
+    - Cargo East <-> LifeSupport West
+- Instantiate modules for WRECK far enough away to require EVA (e.g. +40 to +80 tiles/meters in world units):
+  - Create 5–7 modules similar types.
+  - Link 2–4 of them into a partial ship cluster.
+  - Leave 2–3 detached nearby (offset by a few units) with NO links.
+  - Mark wreck modules with DamageState (if available) or a boolean flag like IsDerelict for later visuals.
+- Ensure player spawn is inside the starter ship command module on a valid interior tile.
+
+B) Seed debris/space obstacles
+- Create a simple obstacle type if not already: CircleObstacle { Vector2 Center, float Radius } or equivalent.
+- Add 15–40 obstacles scattered:
+  - Between starter ship and wreck (to force detours).
+  - Around the wreck cluster (to test weaving).
+  - Avoid placing obstacles inside module bounds (keep clear around module colliders/bounds).
+- Also consider treating detached wreck modules as obstacles for EVA detours:
+  - Either add them as obstacles explicitly or include module bounds in the obstacle intersection test.
+
+C) Auto-unlink validation (critical)
+- Add a tolerance constant (e.g. DOOR_LINK_TOLERANCE = 0.25f or tuned to your world units).
+- Whenever a module moves (RCS) OR at a low-frequency update (e.g. every 0.25s), validate existing ModuleGraph links:
+  - For each link DoorA <-> DoorB:
+    - Compute DoorA.WorldPos and DoorB.WorldPos (derived from ModuleInstance.WorldOffset + door local position).
+    - If distance > tolerance OR either door becomes sealed/intact=false then:
+      - Unlink both ends (ModuleGraph.UnlinkDoor on each)
+      - Increment ModuleGraph.Version (or ensure Unlink does)
+- Ensure NavigationManager recompute triggers continue to work via graph version changes.
+
+D) Debug overlay (minimal)
+- Render door markers at each door world position:
+  - Different color/shape for linked vs unlinked doors (keep it simple; any visible differentiation).
+- Render module IDs and maybe “DERELICT” label.
+- Keep existing waypoint/path debug lines.
+
+Verification
+1) Click inside starter ship: player paths inside and across connected modules.
+2) Exit via airlock: movement switches to EVA.
+3) Click a point near the wreck: SpaceNavigator uses LOS; if blocked by debris, returns detour waypoint.
+4) Reach wreck and enter a connected wreck module: movement switches to GridNav.
+5) Enter RCS mode for a detached wreck module and move it:
+   - ModuleNavigator uses detour if debris blocks.
+   - As module approaches a compatible opposite door, snap-docking occurs and ModuleGraph link is created.
+6) Move a previously linked module away:
+   - Link auto-breaks when beyond tolerance; path recomputes.
+
+Acceptance Criteria
+- No module rotation. Door links remain strictly N<->S and E<->W.
+- BuildScene produces: (a) starter ship cluster, (b) wreck cluster, (c) detached modules, (d) seeded debris.
+- Space obstacles visibly affect EVA and RCS movement via detours.
+- Door links auto-break when drift exceeds tolerance.
+- Debug overlay makes it obvious which doors are linked/unlinked.
+
+Notes
+- Prefer adding new files/classes if it improves readability: WorldBuilder, SalvageDemoBuilder, LinkValidator.
+- Keep algorithms minimal and deterministic (seeded random is fine if constant seed).
+- Do not refactor the existing navigation stack beyond what’s needed for these features.

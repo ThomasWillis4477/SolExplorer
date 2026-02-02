@@ -1,0 +1,69 @@
+Context
+SolExplorer has three navigation modes dispatched by NavigationManager:
+- InsideModule => GridNavigator (tile A* + ModuleGraph hops)
+- EVA (outside modules) => SpaceNavigator (LOS + detour)
+- ModuleRCS => ModuleNavigator
+Currently, doors that are not linked to another module are marked locked/non-walkable, which prevents the player from exiting into space. Clicking outside modules breaks the navigation chain because GridNavigator cannot reach a valid exit.
+We have an F1 debug overlay that prints:
+Items: ...
+Mode: ...
+Navigator: ...
+GridNav: hops=...
+We want two patch additions:
+(1) Debug overlay: add a new text line under the GridNav line that shows which module the player is currently in, or "In Space" if none.
+(2) Airlock module: treat it specially so that ALL of its doors remain walkable (even if not linked) to allow exiting to space (handoff to SpaceNav).
+
+Goals
+1) Improve debug readability: print current containing module ID/name or "In Space".
+2) Enable exit to EVA: airlock module doors should not be locked even when unlinked.
+
+Tasks
+A) Debug overlay: show current module / in space
+1) Locate the debug overlay rendering code (F1 toggle) in the rendering/UI layer (likely IsoDrawable.cs or a DebugOverlay/EngineDebug class).
+2) Find where it prints the navigator lines, specifically the "GridNav: ..." line.
+3) Add a new line immediately after it:
+   - "Location: <ModuleId>" if player is inside a module
+   - "Location: In Space" if player is not inside any module
+4) Use existing world helpers to determine containment. Prefer calling an existing method like:
+   - GameWorld.TryFindContainingModule(worldPos, out module) or equivalent
+   - OR ModuleGridMap.TryGetModuleAtWorld(worldPos)
+   If no helper exists, add a small helper to GameWorld:
+   - ModuleInstance? GetContainingModule(Vector2/Vector3 worldPos) (returns null if none)
+
+B) Airlock module doors stay walkable
+1) In the salvage demo/world builder (GameWorld.BuildScene or WorldBuilder), identify the module instance created for the airlock.
+2) Mark that module instance as an airlock via one of:
+   - ModuleInstance.IsAirlock = true (preferred: add this bool)
+   - ModuleInstance.ModuleTag = "Airlock"
+   - or use ModuleId naming convention "Airlock" (only if you already do this)
+3) In the module grid generation logic (ModuleGridMap rebuild / blueprint to grid):
+   - when placing doors on N/E/S/W walls, doors are currently set walkable=false unless linked.
+   - Add a rule:
+     - If module.IsAirlock == true, set all door tiles walkable=true regardless of link state.
+   - Keep all other modules unchanged (unlinked doors remain locked/non-walkable).
+4) Ensure that door tiles remain passable even if the door is “unlinked”.
+   - This does NOT create ModuleGraph links.
+   - It only allows reaching the door tile so that NavigationManager can resolve EVA once player exits module bounds.
+
+Verification
+1) Start the game, press F1:
+   - Debug overlay shows "Location: <ModuleId>" while inside a module.
+   - When player is out in space, overlay shows "Location: In Space".
+2) Confirm that for non-airlock modules, unlinked doors are still non-walkable.
+3) Confirm that for the airlock module, all 4 doors are walkable even when unlinked.
+4) Click a tile that leads the player to an airlock door, walk through and leave module bounds:
+   - Mode switches to EVA automatically (or at least on next click).
+5) After exiting, click in space:
+   - SpaceNavigator engages and produces a straight/detour path.
+   - Navigation chain no longer “breaks” when clicking outside modules.
+
+Acceptance Criteria
+- Debug overlay always prints correct module location state under GridNav line.
+- Only the airlock module has unlinked doors walkable; all other modules keep unlinked doors locked.
+- Clicking outside modules after exiting through airlock works: EVA navigation engages reliably.
+- No changes to rotation (still none) and no changes to ModuleGraph linking logic beyond the airlock walkability rule.
+
+Notes
+Keep changes minimal and localized:
+- Prefer adding a single boolean flag on ModuleInstance (IsAirlock).
+- Avoid refactoring navigation; this is a small behavior patch + debug text.

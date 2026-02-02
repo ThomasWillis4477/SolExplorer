@@ -1,0 +1,53 @@
+Fix the pipeline with one tiny checksum step
+------------------------------------------------------------------------------
+Option A (best, minimal friction): verify by commit SHA before downloading zip
+
+After Copilot pushes:
+
+In VS Code terminal:
+
+git rev-parse HEAD → copy the SHA
+
+On GitHub:
+
+confirm the repo’s latest commit SHA matches
+
+Only then download the zip
+
+If SHAs match, the zip is supposed to match. If the zip still doesn’t, GitHub caching is in play.
+-----------------------------------------------------------------------
+Option B (even better): download the zip for a specific commit
+
+Instead of “main branch zip”, use “zip at commit”.
+
+On GitHub, open the latest commit → download archive from that commit page (or grab the archive URL tied to that commit).
+This avoids “branch head caching” issues.
+--------------------------------------------------------------------
+Option C (bulletproof): stop using Download ZIP; use git pull in a clean folder
+
+Make a local “review mirror” folder and do:
+
+git clone once
+
+then git pull each cycle
+
+That’s always authoritative and never cached like the zip.
+--------------------------------------------------------------------
+
+A cheap “are we looking at the right build?” stamp (high payoff)
+
+Add a tiny runtime stamp in the app title or debug overlay:
+
+Build: <shortSHA> <UTC timestamp>
+
+Where <shortSHA> comes from a constant you update automatically, or even a manual placeholder for now.
+
+Then any screenshot instantly proves which codebase is running.
+---------------------------------------------------------------------
+Updated “Ivanova handoff” protocol (1 minute)
+
+When you send me a zip, include one line in chat:
+
+“Expected HEAD: <short SHA>”
+
+I’ll check the zip contents against that SHA (or against a build stamp) and we’ll never have a mismatch again.

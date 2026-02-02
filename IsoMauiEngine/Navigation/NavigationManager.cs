@@ -65,7 +65,7 @@ public sealed class NavigationManager
 		{
 			TryCompletePendingInteraction();
 		}
-		_moduleMover.Update(dt);
+		_moduleMover.Update(dt, _world.ResolveModuleMovementStep);
 
 		// Snap docking when module is moving.
 		var active = _world.RcsModeModule;
@@ -91,6 +91,8 @@ public sealed class NavigationManager
 
 	public void SetRcsModeModule(ShipModuleInstance? module)
 	{
+		var wasActive = _world.RcsModeModule is not null;
+		var willBeActive = module is not null;
 		_world.RcsModeModule = module;
 		_moduleMover.SetActiveModule(module);
 		if (module is not null)
@@ -102,6 +104,15 @@ public sealed class NavigationManager
 		if (module is null)
 		{
 			_moduleMover.Stop();
+		}
+
+		if (!wasActive && willBeActive)
+		{
+			_world.Player.EnterRcsMode();
+		}
+		else if (wasActive && !willBeActive)
+		{
+			_world.Player.ExitRcsMode();
 		}
 		RcsModeChanged?.Invoke(module is not null);
 	}

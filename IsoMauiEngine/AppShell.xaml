@@ -10,7 +10,7 @@
     <!-- FlyoutItem: top-level entries in the left flyout (hamburger menu). -->
     <FlyoutItem Title="Isometric Engine" Route="engine">
         <ShellContent
-            Title="Engine"
+            Title="Sol Explorer Alpha Demo (Movement Systems Test)"
             ContentTemplate="{DataTemplate local:MainPage}"
             Route="main" />
     </FlyoutItem>

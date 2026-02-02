@@ -1,0 +1,95 @@
+before any of that I want to remove the keyboard movement control system and go exclusively for a mouse point and click system. The game engine needs an update that both acts like a pathfinder system inside modules that can recognise when modules are linked and travel between different modules using the doors. and a 2d vector based pathfinder system when the player entity is in space (the gap between separate modules) to move between ships and floating modules avoiding sprites marked as debris, and another system to move modules when the player takes control of the RCS system of that module to reposition it. as for retrieval of items, that can be a second stage objective, movement is my primary focus right now.
+
+---------------------------------
+
+Context
+We are building SolExplorer: an isometric, tile-based modular spaceship game. The player moves by mouse point + left click only.
+Key design choice: each module/room has doors on all four walls (N/E/S/W) centered on each wall, so we DO NOT support module rotation. Modules can translate in world space but do not rotate.
+Movement must be implemented as 3 separate but interlinked systems:
+1) GridNav (inside modules): tile-based A* pathfinding that can traverse across connected modules via door links, and recompute dynamically when connections change.
+2) SpaceNav (outside modules / EVA): vector-based movement with straight-line travel and simple obstacle avoidance around debris sprites/colliders.
+3) ModuleNav (RCS mode): vector-based movement for moving a module (not the player) toward a clicked target, also with simple obstacle avoidance and snap-docking when doors align.
+
+Goals
+- Implement a clean, maintainable navigation architecture with one shared input model and one shared output model.
+- Keep the three nav systems separate in logic but unify them via a shared dispatcher and waypoint output.
+- Avoid overengineering: no navmesh, no global mega-grid, no rotation math.
+
+Tasks
+1) Create shared data models:
+   - NavRequest: { RequesterType (Player|Module), StartWorld, TargetWorld }
+   - NavPath: { List<Vector2/Vector3> Waypoints, bool IsValid, string DebugInfo }
+   - MovementMode enum: InsideModule, EVA, ModuleRCS
+2) Create an INavigator interface:
+   - NavPath ComputePath(NavRequest request)
+3) Implement a MovementController (or NavigationManager) that:
+   - On LMB click: creates NavRequest with TargetWorld = clicked world position
+   - Resolves current MovementMode:
+     - If RCS control active => ModuleRCS
+     - Else if player is inside any module bounds => InsideModule
+     - Else => EVA
+   - Dispatches request to the correct navigator:
+     - GridNavigator / SpaceNavigator / ModuleNavigator
+   - Feeds returned NavPath waypoints into the appropriate mover:
+     - PlayerMover follows waypoints when requester is Player
+     - ModuleMover follows waypoints when requester is Module
+   - Stores current path and supports recompute triggers.
+4) Implement module representation (logic-only; rendering can stay as-is):
+   - ModuleInstance: { ModuleId, SizePreset, GridWidth, GridHeight, WorldPosition, Bounds/Collider, DamageState }
+   - DoorSide enum: North/East/South/West
+   - Door: { Side, LocalTilePos (center-of-wall), WorldPos (derived from module WorldPosition), IsIntact, IsSealed }
+   - ModuleGraph:
+     - Nodes: modules
+     - Edges: door links between Door A and Door B (always opposite sides only: N<->S, E<->W)
+     - API:
+       - bool TryLinkDoors(ModuleA, sideA, ModuleB, sideB)
+       - void UnlinkDoor(Module, side)
+       - List<ModuleInstance> FindModuleRoute(ModuleStart, ModuleGoal) (BFS/Dijkstra)
+5) GridNavigator (InsideModule pathing):
+   - Two-layer routing:
+     - Layer A: ModuleGraph route between start module and target module.
+     - Layer B: Local A* within each module to walk:
+       - playerTile -> exitDoorTile (module i)
+       - entryDoorTile -> exitDoorTile (module i+1)
+       - final entryDoorTile -> targetTile (goal module)
+   - Convert local tile path into world-space waypoints (tile centers).
+   - Must recompute when:
+     - door links created/broken
+     - doors blocked/unblocked
+     - module moves enough to snap/un-snap docking
+6) SpaceNavigator (EVA pathing):
+   - Output waypoints in world-space (Vector2/Vector3).
+   - First do a line-of-sight test player->target:
+     - If unobstructed (no debris collider intersection), return [target].
+     - If blocked, compute a simple detour:
+       - Find the nearest blocking obstacle
+       - Choose a left/right offset waypoint around it (tangent-like) with a configurable clearance distance
+       - Return [detourWaypoint, target]
+   - Keep it simple; no full A* required in space.
+7) ModuleNavigator (RCS movement for moving a module):
+   - Same algorithm as SpaceNavigator, but requester is Module and start point is module center.
+   - Integrate snap-docking:
+     - When module door world positions come within tolerance of a compatible opposite door of another module,
+       expose a “snap candidate” and allow snapping to exact alignment.
+     - On snap, create ModuleGraph door link(s).
+8) Debug tooling:
+   - Draw current waypoints as lines.
+   - Display current MovementMode, active navigator, and whether we are inside a module.
+   - For GridNavigator, optionally draw door hop sequence.
+
+Verification
+- Click inside a module: player paths on tiles to clicked tile.
+- Click into a different connected module: player path crosses doors and reaches target.
+- Break a link: path recomputes and fails gracefully if no route.
+- Exit module bounds into space: movement switches to EVA and uses straight line, detours around debris.
+- Enter RCS mode for a module: clicking moves the module toward target and avoids debris; near doors snap and links form.
+
+Acceptance Criteria
+- No module rotation support anywhere; door mapping assumes fixed N/E/S/W only.
+- All three navigators output world-space waypoints via NavPath; MovementController is the only dispatcher.
+- GridNav uses ModuleGraph + local A*, NOT a global mega-grid.
+- SpaceNav/ModuleNav use line-of-sight + one-detour avoidance (minimum viable).
+- Clear debug overlays prove which system is active and what path is being followed.
+
+Notes
+Use existing DrawIsoTile and existing rendering as-is; focus on architecture + logic. Add new files/classes as needed, keep code modular and readable.

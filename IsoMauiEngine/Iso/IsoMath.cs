@@ -14,6 +14,15 @@ public static class IsoMath
 		return new Vector2(worldX, worldY);
 	}
 
+	public static Vector2 GridToWorld(float gx, float gy)
+	{
+		var worldX = (gx - gy) * (TileWidth / 2f);
+		var worldY = (gx + gy) * (TileHeight / 2f);
+		return new Vector2(worldX, worldY);
+	}
+
+	public static Vector2 GridToWorld(Vector2 grid) => GridToWorld(grid.X, grid.Y);
+
 	public static Vector2 WorldToGrid(Vector2 world)
 	{
 		// Inverse of:

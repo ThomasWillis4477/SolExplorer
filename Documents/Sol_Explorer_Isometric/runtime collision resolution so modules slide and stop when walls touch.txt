@@ -1,0 +1,76 @@
+Context
+- Project: SolExplorer (MAUI isometric)
+- Current behavior: RCS module movement is handled by IsoMauiEngine/Navigation/ModuleMover.cs which applies _module.WorldOffset += step every frame. Collision is not resolved during movement, so modules can clip into each other until ModuleNavigator.TrySnapDock() detects door-to-door alignment and snaps them into place.
+- Movement loop: NavigationManager.Update(dt) -> _moduleMover.Update(dt) -> (while moving) _moduleNav.TrySnapDock(active)
+
+Goal
+Improve collision detection during RCS module movement:
+- When the moving module’s WALLS touch another module’s WALLS and no door-to-door snap occurs, the moving module should slide along the obstacle and come to a stop (no penetration/clipping).
+- Door-to-door snap docking should still work as before.
+
+Tasks
+1) Identify module movement code and add collision resolution:
+   - Modify ModuleMover.Update(...) to accept a collision resolver callback from GameWorld (or NavigationManager).
+   - New signature suggestion:
+     - ModuleMover.Update(float dt, Func<ShipModuleInstance, Vector2 /*desiredStepWorld*/, Vector2 /*adjustedStepWorld*/> resolveStep)
+   - Update NavigationManager.Update(dt) to call:
+     - _moduleMover.Update(dt, _world.ResolveModuleMovementStep);
+
+2) Implement a collision resolver in GameWorld:
+   - Add method in IsoMauiEngine/World/GameWorld.cs:
+     - public Vector2 ResolveModuleMovementStep(ShipModuleInstance moving, Vector2 desiredStepWorld)
+   - It must:
+     - Convert current and proposed movement into GRID-space (not world-space) for clean rectangle collisions.
+       - Use IsoMath.WorldToGrid(...) to convert offsets/steps:
+         - var currentGridOff = IsoMath.WorldToGrid(moving.WorldOffset);
+         - var stepGrid = IsoMath.WorldToGrid(desiredStepWorld);
+     - Compute AABB in GRID-space for moving module and all other modules using:
+       - origin = (OriginX, OriginY) + gridOffset
+       - width/height = module.Width/module.Height
+       - Include a small padding (eg 0.01f) so “touching” counts as contact but not overlap.
+     - Perform “axis separated” movement in GRID-space for sliding:
+       a) Try move X only: (dx, 0)
+          - If it would overlap any other module AABB, clamp dx to the maximum allowed without overlap (stop at contact).
+       b) Apply the (possibly clamped) X, then try move Y only: (0, dy)
+          - Same overlap test + clamp dy.
+       - This produces wall sliding naturally (classic AABB slide).
+     - Convert the final clamped stepGrid back to world-space and return it.
+
+3) Add IsoMath overload for float grid conversion:
+   - IsoMauiEngine/Iso/IsoMath.cs currently has GridToWorld(int gx, int gy). Add an overload:
+     - public static Vector2 GridToWorld(float gx, float gy)
+       using the same linear formula:
+       worldX = (gx - gy) * (TileWidth/2)
+       worldY = (gx + gy) * (TileHeight/2)
+     - Or GridToWorld(Vector2 grid) overload.
+
+4) Ensure snap-docking remains compatible:
+   - Do NOT change ModuleNavigator.TrySnapDock().
+   - Collision should allow moving module to reach exact “touching” alignment (no penetration) so TrySnapDock can still detect door proximity within tolerance and snap/link.
+
+5) Performance:
+   - ResolveModuleMovementStep runs every frame while moving; keep it simple:
+     - Iterate other modules once per axis check.
+     - Early-out if desiredStepWorld is ~zero.
+
+Verification
+- Manual runtime test:
+  1) Pick up a module in RCS and push it directly into another module’s wall (not aligned door-to-door).
+     - Expected: it slides until the walls touch and then stops; no clipping.
+  2) Push at an angle along a wall.
+     - Expected: it slides along the wall (X blocked, Y continues or vice versa).
+  3) Align door-to-door and approach.
+     - Expected: collision stops at contact and then TrySnapDock snaps the module into perfect alignment and links doors.
+  4) Ensure no regressions in player movement or door passability.
+
+Acceptance Criteria
+- Modules do not visually overlap/clip while moving via RCS.
+- A moving module stops when its rectangle would overlap another module.
+- Movement “slides” along obstacles when pushing diagonally.
+- Door snap docking still triggers and produces the same final placement/link as before.
+- Changes are localized to:
+  - IsoMauiEngine/Navigation/ModuleMover.cs
+  - IsoMauiEngine/Navigation/NavigationManager.cs
+  - IsoMauiEngine/World/GameWorld.cs (new resolver)
+  - IsoMauiEngine/Iso/IsoMath.cs (float GridToWorld overload)
+  - (Optional helper) ShipModuleInstance.cs for a GetGridAabb(...) utility

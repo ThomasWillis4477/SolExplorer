@@ -14,6 +14,7 @@ public enum DrawKind
 	WallTile,
 	DoorTile,
 	Entity,
+	RcsConsolePlayer,
 	Marker,
 	RcsMarker,
 	LockerMarker,
